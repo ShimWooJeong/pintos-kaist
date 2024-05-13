@@ -246,8 +246,8 @@ void thread_sleep(int64_t ticks)
 	struct thread *current;	   // 현재 스레드
 	current = thread_current();
 
-	old_level = intr_disable();		// 인터럽트 off -> 상호배제 막기 위해
 	ASSERT(idle_thread != current); // idle_thread는 sleep 되면 안 됨
+	old_level = intr_disable();		// 인터럽트 off -> 상호배제 막기 위해
 
 	current->wakeup_t = ticks;												  // 일어날 시간 저장
 	global_t = (global_t > current->wakeup_t) ? current->wakeup_t : global_t; //// wakeup_t랑 비교해서 global_t 갱신
@@ -271,7 +271,7 @@ void thread_awake(int64_t ticks)
 
 		if (ticks >= ready_thread->wakeup_t) // 일어날 시간 됐는지 확인(현재 시간이 일어날 시간보다 클 때)
 		{
-			search = list_remove(search); // 해당 스레드 sleep_list에서 제거
+			search = list_remove(search); // 해당 스레드 sleep_list에서 제거 //search
 			thread_unblock(ready_thread); // 스레드 unblock(상태도 변경해주고 ready_list에도 넣어줌)
 		}
 		else
