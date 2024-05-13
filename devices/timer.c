@@ -109,6 +109,9 @@ void timer_sleep(int64_t ticks)
 	// 	thread_yield();
 	if (timer_elapsed(start) < ticks)
 	{
+		// ticks에 음수 값이나 0같은 쓸모없는 값이 들어오는 거 걸러준다고 생각
+		// if문 안 걸면 alarm-zero & alarm-negative에서 idle이 1이 나오고
+		// if문 걸면 alarm-zero & alarm-negative에서 idle이 0이 나옴
 		thread_sleep(start + ticks);
 	}
 }
