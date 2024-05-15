@@ -152,4 +152,7 @@ void thread_awake(int64_t ticks);
 void update_global_tick(int64_t ticks);
 int64_t get_global_tick(void);
 
+bool compare_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+void running_compare_yield(void);
+
 #endif /* threads/thread.h */

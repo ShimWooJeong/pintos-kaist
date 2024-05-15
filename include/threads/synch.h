@@ -23,7 +23,7 @@ struct lock
 	struct thread *holder;		/* Thread holding lock (for debugging). */
 	struct semaphore semaphore; /* Binary semaphore controlling access. */
 };
-// lock = 뮤텍스
+// lock
 // 연산: up = release, down = acquire
 // 세마포어와 다르게 제한이 있음: 락을 갖고 있는 owner 스레드 만이 락을 놓아줄 수 있다
 
