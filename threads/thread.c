@@ -28,6 +28,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 static struct list sleep_list; //++sleep_list 구조체 선언
+static struct list wait_list;  //++wait_list 구조체 선언
 
 static int64_t global_t; //++global tick, sleep_list 중 가장 먼저 깨워야 할 스레드의 awake_t
 
@@ -111,6 +112,7 @@ void thread_init(void)
 	lock_init(&tid_lock);
 	list_init(&ready_list);
 	list_init(&sleep_list); //++sleep_list 구조체 초기화
+	list_init(&wait_list);	//++wait_list 구조체 초기화
 	list_init(&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -211,13 +213,13 @@ tid_t thread_create(const char *name, int priority,
 	tid_t tid;
 
 	ASSERT(function != NULL);
-
 	/* Allocate thread. */
 	t = palloc_get_page(PAL_ZERO);
 	if (t == NULL)
 		return TID_ERROR;
 
 	/* Initialize thread. */
+	// create된 thread->status = THREAD_BLOCKED
 	init_thread(t, name, priority);
 	tid = t->tid = allocate_tid();
 
@@ -234,6 +236,7 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock(t);
+	running_compare_yield();
 
 	return tid;
 }
@@ -273,6 +276,7 @@ void thread_awake(int64_t ticks)
 		{
 			search = list_remove(search); // 해당 스레드 sleep_list에서 제거 //search
 			thread_unblock(ready_thread); // 스레드 unblock(상태도 변경해주고 ready_list에도 넣어줌)
+										  // running_compare_yield(); // 왜 깨우고 나서 ready에 새로 들어갈 때 compare하면 안 되는거지 왜??????
 		}
 		else
 		{
@@ -314,12 +318,21 @@ void thread_unblock(struct thread *t)
 	enum intr_level old_level;
 
 	ASSERT(is_thread(t));
-
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	// list_push_back(&ready_list, &t->elem);
+	// ready_list에 input하는 unblock&yeild에서 push_back이 아닌 insert_ordered로
+	//++우선순위 순으로 삽입 시 alarm_priority 테스트 케이스 passed
+	list_insert_ordered(&ready_list, &t->elem, compare_priority, 0);
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
+}
+
+bool compare_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+{
+	return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
+	//++ 우선순위 비교해주는 함수 (list_insert_ordered에 인자로 넣어줌)
+	// a가 더 크면 true, b가 더 크면 false 반환
 }
 
 /* Returns the name of the running thread. */
@@ -390,9 +403,29 @@ void thread_yield(void)
 
 	old_level = intr_disable(); // 인터럽트 비활성화하고, 이전 인터럽트 상태로 되돌려줌
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem); // ready_list의 마지막에 insert
-	do_schedule(THREAD_READY);					  // context switch
-	intr_set_level(old_level);					  // interrupt 상태를 parameter로 전달한 상태로 설정 & 이전 interrupt 상태 반환
+	{
+		// list_push_back(&ready_list, &curr->elem); // ready_list의 마지막에 insert
+		//++ready_list에 넣을 때 우선순위로 정렬되도록 삽입 후, 실행 중인 스레드와 우선순위 비교
+		list_insert_ordered(&ready_list, &curr->elem, compare_priority, 0);
+	}
+	do_schedule(THREAD_READY); // context switch
+	intr_set_level(old_level); // interrupt 상태를 parameter로 전달한 상태로 설정 & 이전 interrupt 상태 반환
+}
+
+void running_compare_yield(void)
+{
+	//++실행 중인 애랑 우선순위 비교해서 yield 할지 말지
+	// 이 함수는 그니까 running인 애의 priority가 변경됐을 때 호출해서 쓰는 건가??
+	// 그래서 set_priority랑 create 할 때만 호출하는 거지
+	// create 할 때 일단 running으로 가서 원래 사용하던 애가 ready로 빠짐?? -> 다시 yield 통해서 schedule 때려줘야 함??
+	// 의문점 1) thread_create 할 때 running으로 먼저 가냐, ready로 먼저 가냐??
+	// 의문점 2) ready_list에 새 스레드가 들어올 때, 실행 중인 current_thread랑 비교해서 만약 들어온 thread가 우선순위가 더 높으면, yield 해서 context switching이 발생해야 하는 게 아닌가?
+	//			근데 왜 create에만 비교해서 yield를 해야 할까??
+	//			thread_create해서 ready로 새 스레드가 들어오든 & awake해서 ready로 새 스레드가 들어오든 두 경우 모두 compare 해야 하는 것이 아닌가??
+	if (!list_empty(&ready_list) && thread_current()->priority < list_entry(list_begin(&ready_list), struct thread, elem)->priority)
+	{
+		thread_yield();
+	}
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
@@ -400,6 +433,8 @@ void thread_yield(void)
 void thread_set_priority(int new_priority)
 {
 	thread_current()->priority = new_priority;
+	//++우선 순위가 바뀌었다면, 실행 중인 애와 준비 중인 애의 우선순위 비교해 yield 될 수 있도록
+	running_compare_yield();
 }
 
 /* Returns the current thread's priority. */
