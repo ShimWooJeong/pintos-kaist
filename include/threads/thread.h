@@ -88,11 +88,15 @@ typedef int tid_t;
 struct thread
 {
 	/* Owned by thread.c. */
-	tid_t tid;				   /* Thread identifier. */
-	enum thread_status status; /* Thread state. */
-	char name[16];			   /* Name (for debugging purposes). */
-	int priority;			   /* Priority. */
-	int64_t wakeup_t;		   //++깨어나야 하는 ticks값
+	tid_t tid;						/* Thread identifier. */
+	enum thread_status status;		/* Thread state. */
+	char name[16];					/* Name (for debugging purposes). */
+	int priority;					/* Priority. */
+	int64_t wakeup_tick;			/* wakeup 할 시간 저장 */
+	struct list donations;			/* 해당 스레드가 가지고 있는 lock을 필요로 해, 요청하면서 Priority를 기부한 스레드들 list */
+	struct list_elem donation_elem; /* donations 요소 */
+	int origin_priority;			/* 스레드에게 부여된 기존 priority */
+	struct lock *wait_on_lock;		/* 해당 스레드가 기다릴 lock의 주소 */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. */
@@ -133,7 +137,10 @@ tid_t thread_tid(void);
 const char *thread_name(void);
 
 void thread_exit(void) NO_RETURN;
+void thread_compare_yield(void);
 void thread_yield(void);
+void thread_sleep(int64_t wakeup_tick);
+void thread_wakeup(int64_t curr_tick);
 
 int thread_get_priority(void);
 void thread_set_priority(int);
@@ -145,14 +152,6 @@ int thread_get_load_avg(void);
 
 void do_iret(struct intr_frame *tf);
 
-//++추가한 함수 프로토타입 선언
-void thread_sleep(int64_t ticks);
-void thread_awake(int64_t ticks);
-
-void update_global_tick(int64_t ticks);
-int64_t get_global_tick(void);
-
 bool compare_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
-void running_compare_yield(void);
 
 #endif /* threads/thread.h */

@@ -29,9 +29,13 @@ static bool too_many_loops(unsigned loops);
 static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 
-/* Sets up the 8254 Programmable Interval Timer (PIT) to
-   interrupt PIT_FREQ times per second, and registers the
-   corresponding interrupt. */
+/**
+ * @brief 8254 프로그래머블 인터벌 타이머(PIT)를 설정하여 초당 PIT_FREQ 번 인터럽트가 발생하도록 하고, 해당 인터럽트를 등록합니다.
+ *
+ * 이 함수는 8254 PIT를 설정하여 초당 PIT_FREQ 번 인터럽트가 발생하도록 합니다. 또한, 이에 해당하는 인터럽트를 시스템에 등록합니다.
+ * 8254 PIT의 입력 주파수는 TIMER_FREQ로 나누어 가장 가까운 정수로 반올림됩니다.
+ * 이 함수는 8254 타이머 인터럽트를 처리하는 데 필요한 초기 설정을 수행합니다.
+ */
 void timer_init(void)
 {
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
@@ -42,7 +46,7 @@ void timer_init(void)
 	outb(0x40, count & 0xff);
 	outb(0x40, count >> 8);
 
-	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
+	intr_register_ext(0x20, timer_interrupt, "8254 Timer"); /* 인터럽트 핸들러 등록 */
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -74,7 +78,7 @@ void timer_calibrate(void)
 /* Returns the number of timer ticks since the OS booted. */
 int64_t
 timer_ticks(void)
-{ // current tick을 return
+{
 	enum intr_level old_level = intr_disable();
 	int64_t t = ticks;
 	intr_set_level(old_level);
@@ -82,20 +86,30 @@ timer_ticks(void)
 	return t;
 }
 
-/* Returns the number of timer ticks elapsed since THEN, which
-   should be a value once returned by timer_ticks(). */
-// timer_sleep이 호출된 시점부터 경과한 tick 수 반환
+/**
+ * @brief 타이머 틱으로 표현된 경과 시간을 계산합니다.
+ *
+ * 이 함수는 'then' 파라미터로 표현된 시간 이후에 경과한 타이머 틱의 수를 반환합니다.
+ * 'then' 파라미터는 이전에 timer_ticks() 함수에 의해 반환된 값이어야 합니다.
+ *
+ * @param then 타이머 틱으로 표현된 이전 시간점.
+ * @return int64_t 'then' 이후에 경과한 타이머 틱의 수.
+ */
 int64_t
 timer_elapsed(int64_t then)
 {
 	return timer_ticks() - then;
 }
 
-/* Suspends execution for approximately TICKS timer ticks. */
-// 인자로 넣은 tick 시간동안 스레드를 잠재우기 (start로부터 지난 시간이 < ticks 라면 잠재우기 = 아마 인자는 wakeup 시간이랑 같겠지??ㅠㅠ)
+/**
+ * @brief 주어진 타이머 틱 수만큼 실행을 중지합니다.
+ *
+ * @param ticks 실행을 중지할 타이머 틱의 수.
+ */
 void timer_sleep(int64_t ticks)
 {
-	//++sleep_list에 스레드 삽입하는 부분 추가하기
+	ASSERT(intr_get_level() == INTR_ON); /* 인터럽트가 켜져 있지 않으면 assert */
+
 	int64_t start = timer_ticks();
 
 	// 여기서 생각해 볼 문제점
@@ -103,16 +117,12 @@ void timer_sleep(int64_t ticks)
 	// context switching이 발생해서 if문이 무효화가 될 수 있음
 	// 이번 프로젝트 채점하지 않지만 -> 좋은 프로그래머가 되기 위해 고민해보기
 
-	ASSERT(intr_get_level() == INTR_ON);
-	// // 기존 코드
-	// while (timer_elapsed(start) < ticks)
-	// 	thread_yield();
 	if (timer_elapsed(start) < ticks)
 	{
 		// ticks에 음수 값이나 0같은 쓸모없는 값이 들어오는 거 걸러준다고 생각
 		// if문 안 걸면 alarm-zero & alarm-negative에서 idle이 1이 나오고
 		// if문 걸면 alarm-zero & alarm-negative에서 idle이 0이 나옴
-		thread_sleep(start + ticks);
+		thread_sleep(start + ticks); /* 현재 쓰레드를 일정 tick만큼 sleep 시키는 함수 호출 */
 	}
 }
 
@@ -141,23 +151,18 @@ void timer_print_stats(void)
 }
 
 /* Timer interrupt handler. */
+
+/**
+ * @brief 타이머 인터럽트 핸들러
+ *
+ * @param UNUSED 인터럽트 프레임 (현재 사용되지 않음)
+ */
 static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
 	thread_tick();
-	//++모든 tick에서 일부 스레드가 sleeplist에서 wakeup 해야 하는지 확인 & wakeup 호출
-	/* code to add:
-	check sleep list and the global tick.
-	find any threads to wake up,
-	move them to the ready list if necessary.
-	update the global tick.
-	*/
-	// global_tick이 ticks 보다 작거나 같을 때 -> 가장 먼저 깨울 애가 깰 시간이라면 thread_awake 호출
-	if (get_global_tick() <= ticks)
-	{
-		thread_awake(ticks);
-	}
+	thread_wakeup(ticks); /* 지정된 틱 시간에 깨어날 스레드를 깨우는 함수 호출 */
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
