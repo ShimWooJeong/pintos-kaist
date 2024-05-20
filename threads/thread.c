@@ -10,6 +10,7 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed_point.h"
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -31,6 +32,9 @@ static struct list ready_list;
 /* 상태가 THREAD_BLOCKED인 프로세스들의 리스트 */
 static struct list sleep_list;
 
+/* 모든 스레드 관리할 리스트 */
+static struct list all_list;
+
 /* 쓰레드들의 wakeup_tick 중 최소값을 저장하는 전역변수 */
 static int64_t global_tick;
 
@@ -51,6 +55,8 @@ static long long idle_ticks;   /* # of timer ticks spent idle. */
 static long long kernel_ticks; /* # of timer ticks in kernel threads. */
 static long long user_ticks;   /* # of timer ticks in user programs. */
 
+static int load_avg;
+
 /* Scheduling. */
 #define TIME_SLICE 4		  /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
@@ -69,7 +75,7 @@ static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
 
-static int64_t get_min_tick();
+int64_t get_min_tick();
 static int set_global_tick(int64_t tick);
 static bool wakeup_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 
@@ -120,6 +126,7 @@ void thread_init(void)
 	list_init(&ready_list);
 	list_init(&sleep_list); /* sleep list 초기화 */
 	list_init(&destruction_req);
+	list_init(&all_list);
 
 	global_tick = INT64_MAX; /* global tick 초기화 */
 
@@ -136,6 +143,8 @@ void thread_start(void)
 {
 	/* Create the idle thread. */
 	struct semaphore idle_started;
+	load_avg = 0;
+
 	sema_init(&idle_started, 0);
 	thread_create("idle", PRI_MIN, idle, &idle_started);
 
@@ -264,7 +273,7 @@ void thread_unblock(struct thread *t)
 	 * NOTE: ready_list에 우선순위 순으로 삽입
 	 * part: priority-insert-ordered
 	 */
-	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
+	list_insert_ordered(&ready_list, &t->elem, compare_priority, NULL);
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
@@ -363,7 +372,7 @@ void thread_yield(void)
 	 * part: priority-insert-ordered
 	 */
 	if (curr != idle_thread)
-		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL);
+		list_insert_ordered(&ready_list, &curr->elem, compare_priority, NULL);
 	do_schedule(THREAD_READY);
 	intr_set_level(old_level);
 }
@@ -417,9 +426,9 @@ void thread_wakeup(int64_t curr_tick)
 
 		if (t->wakeup_tick <= curr_tick) /* wakeup 필요 */
 		{
-			e = list_remove(e);				 /* sleep_list에서 제거 */
-			thread_unblock(t);				 /* 쓰레드 block 해제 후 */
-			thread_compare_yield();			 /* 깨운 thread를 unblock해서 깨우고 ready_list에 삽입 됐으니, 실행 중인 thread의 우선순위와 ready_list의 최대 우선순위를 비교해 yield */
+			e = list_remove(e); /* sleep_list에서 제거 */
+			thread_unblock(t);	/* 쓰레드 block 해제 후 */
+			// thread_compare_yield();			 /* 깨운 thread를 unblock해서 깨우고 ready_list에 삽입 됐으니, 실행 중인 thread의 우선순위와 ready_list의 최대 우선순위를 비교해 yield */
 			set_global_tick(get_min_tick()); /* global_tick 갱신 */
 		}
 		else
@@ -430,6 +439,12 @@ void thread_wakeup(int64_t curr_tick)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority)
 {
+	/* advanced scheduler 사용할 때 우선순위 설정 disable */
+	if (thread_mlfqs)
+	{
+		return;
+	}
+	thread_current()->priority = new_priority;
 	thread_current()->origin_priority = new_priority;
 
 	/**
@@ -454,30 +469,123 @@ int thread_get_priority(void)
 }
 
 /* Sets the current thread's nice value to NICE. */
-void thread_set_nice(int nice UNUSED)
+void thread_set_nice(int new_nice UNUSED)
 {
-	/* TODO: Your implementation goes here */
+	struct thread *t = thread_current();
+	enum intr_level old_level = intr_disable();
+	/* 현재 스레드의 nice 값 변경 후 현재 스레드의 우선순위를 재계산하고, 그 우선순위에 의해 scheduling */
+	if (t != idle_thread)
+	{
+		t->nice = new_nice;
+	}
+	mlfqs_calculate_priority(t);
+	thread_compare_yield();
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
 int thread_get_nice(void)
 {
-	/* TODO: Your implementation goes here */
-	return 0;
+	struct thread *t = thread_current();
+	enum intr_level old_level = intr_disable();
+	int return_nice = t->nice;
+	intr_set_level(old_level);
+	return return_nice;
 }
 
 /* Returns 100 times the system load average. */
 int thread_get_load_avg(void)
 {
-	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level = intr_disable();
+	int return_load_avg = fp_to_int(multi_mixed(load_avg, 100));
+	// 인터럽트 끄고 계산하고 키고 리턴하고 계산도 실수연산
+	intr_set_level(old_level);
+	return return_load_avg;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int thread_get_recent_cpu(void)
 {
-	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level = intr_disable();
+	int return_recent_cpu = fp_to_int(multi_mixed(thread_current()->recent_cpu, 100));
+	// 인터럽트 끄고 계산하고 키고 리턴하고 계산도 실수연산
+	intr_set_level(old_level);
+	return return_recent_cpu;
+}
+
+void mlfqs_calculate_priority(struct thread *t)
+{
+	if (t == idle_thread)
+	{
+		return;
+	}
+	// 인터럽트 끄고 계산하고 키고 리턴
+	t->priority = fp_to_int(sub_mixed(PRI_MAX - (t->nice * 2), div_mixed(t->recent_cpu, 4)));
+}
+
+void mlfqs_calculate_load_avg(void)
+{
+	int ready_threads;
+
+	if (thread_current() == idle_thread)
+	{
+		// 실행 중인 스레드가 없으면 current = idle_thread
+		// => ready_threads = ready_list 수
+		ready_threads = list_size(&ready_list);
+	}
+	else
+	{
+		// 실행 중인 스레드가 있으면 current != idle_thread
+		// => ready_threads = ready_list 수 + 1(실행 중 스레드)
+		ready_threads = list_size(&ready_list) + 1;
+	}
+
+	load_avg = add_fp(multi_fp(div_fp(int_to_fp(59), int_to_fp(60)), load_avg),
+					  multi_mixed(div_fp(int_to_fp(1), int_to_fp(60)), ready_threads));
+}
+
+void mlfqs_calculate_recent_cpu(struct thread *t)
+{
+	if (t == idle_thread)
+	{
+		return;
+	}
+	t->recent_cpu = add_mixed(multi_fp(div_fp(multi_mixed(load_avg, 2), add_mixed(multi_mixed(load_avg, 2), 1)), t->recent_cpu), t->nice);
+}
+
+/* 값을 변화시키는 함수들 */
+/* 1) mlfqs_increase_recent_cpu(): running thread의 recent_cpu를 +1 하는 함수 (1tick 마다) */
+/* 2) mlfqs_recalculate_priority(): 모든 thread의 priority 재계산(4tick 마다) */
+/* 3) mlfqs_recalculate_recent_cpu(): 모든 thread의 recent_cpu 재계산 (1초(100tick) 마다)*/
+
+void mlfqs_increase_recent_cpu(void)
+{
+	if (thread_current() != idle_thread)
+	{
+		thread_current()->recent_cpu = add_mixed(thread_current()->recent_cpu, 1);
+	}
+}
+
+void mlfqs_recalculate_priority(void)
+{
+	/* 4tick마다 모든 thread의 priority 재계산 */
+	struct list_elem *e;
+	for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
+	{
+		struct thread *t = list_entry(e, struct thread, all_elem);
+		mlfqs_calculate_priority(t);
+	}
+}
+
+void mlfqs_recalculate_recent_cpu(void)
+{
+	/* 1초(100tick)마다 모든 thread의 recent_cpu와 load_avg값 재계산(얘는 recent_cpu 재계산하는 함수) */
+	struct list_elem *e;
+	for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
+	{
+		struct thread *t = list_entry(e, struct thread, all_elem);
+		mlfqs_calculate_recent_cpu(t);
+	}
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -548,7 +656,11 @@ init_thread(struct thread *t, const char *name, int priority)
 
 	t->wait_on_lock = NULL;
 	t->origin_priority = priority;
+
+	t->nice = 0;
+	t->recent_cpu = 0;
 	list_init(&t->donations);
+	list_push_back(&all_list, &t->all_elem);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -675,6 +787,7 @@ do_schedule(int status)
 	{
 		struct thread *victim =
 			list_entry(list_pop_front(&destruction_req), struct thread, elem);
+		list_remove(&victim->all_elem);
 		palloc_free_page(victim);
 	}
 	thread_current()->status = status;
@@ -736,7 +849,7 @@ allocate_tid(void)
 	return tid;
 }
 
-static int64_t get_min_tick()
+int64_t get_min_tick(void)
 {
 	if (list_empty(&sleep_list))
 		return INT64_MAX;
@@ -774,7 +887,7 @@ static bool wakeup_less(const struct list_elem *a_, const struct list_elem *b_, 
 - priority 비교 함수 구현
 */
 
-bool cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
+bool compare_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED)
 {
 	return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
 	//++ 우선순위 비교해주는 함수 (list_insert_ordered에 인자로 넣어줌)

@@ -118,7 +118,7 @@ void sema_up(struct semaphore *sema)
 								  struct thread, elem));
 	}
 	sema->value++;
-	/* sema의 value가 높아졌으니 wait하던 thread가 가져가서 ready로 갔을 수 있으니 yield 호출 */
+	/* sema의 value가 높아짐으로 인해 wait하던 thread가 가져가서 ready로 갔을 수 있으니 yield 호출 */
 	thread_compare_yield();
 	intr_set_level(old_level);
 }
@@ -199,11 +199,14 @@ void lock_acquire(struct lock *lock)
 	struct thread *curr = thread_current();
 	struct thread *lock_holder_t = lock->holder;
 
-	if (lock->holder != NULL)
+	if (!thread_mlfqs)
 	{
-		curr->wait_on_lock = lock;
-		list_insert_ordered(&lock_holder_t->donations, &curr->donation_elem, cmp_donation, 0);
-		donate_priority();
+		if (lock->holder != NULL)
+		{
+			curr->wait_on_lock = lock;
+			list_insert_ordered(&lock_holder_t->donations, &curr->donation_elem, cmp_donation, 0);
+			donate_priority(); /* advanced scheduler 사용할 때 우선순위 donation 금지 */
+		}
 	}
 
 	sema_down(&lock->semaphore);
@@ -266,8 +269,11 @@ void lock_release(struct lock *lock)
 	ASSERT(lock != NULL);
 	ASSERT(lock_held_by_current_thread(lock));
 
-	remove_donations(lock);	  /* donations에서 release할 lock을 기다리고 있는 thread 목록 제거 */
-	update_donate_priority(); /*  */
+	if (!thread_mlfqs)
+	{
+		remove_donations(lock); /* donations에서 release할 lock을 기다리고 있는 thread 목록 제거 */
+		update_donate_priority();
+	}
 
 	lock->holder = NULL;
 	sema_up(&lock->semaphore);
@@ -300,7 +306,7 @@ void update_donate_priority(void)
 	curr->priority = curr->origin_priority;
 	/* 처음에 donations가 비어있다면 origin_priority로 갱신하고, 비어있지 않다면 donations 목록에서 가장 높은 우선순위로 갱신하는 코드로 짰는데 fail이 뜸
 	/* 그래서 애초에 origin으로 바꾼 후에 비어있지 않다면 다시 갱신하는 방식으로 수정
-	/* 이렇게 해야 하는 이유는 donations에 current보다 작은 priority를 가진 thread가 있는 경우를 고려하기 위함
+	/* 이렇게 해야 하는 이유는 donations에 current의 original_priority보다 작은 priority를 가진 thread가 있는 경우를 고려하기 위함?
 	*/
 
 	if (!list_empty(&curr->donations))
