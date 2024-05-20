@@ -8,6 +8,8 @@
         "palloc.h": "c",
         "intr-stubs.h": "c",
         "process.h": "c",
-        "flags.h": "c"
+        "flags.h": "c",
+        "__config": "c",
+        "version": "c"
     }
 }

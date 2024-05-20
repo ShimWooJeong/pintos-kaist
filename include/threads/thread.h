@@ -98,14 +98,18 @@ struct thread
 	int origin_priority;			/* 스레드에게 부여된 기존 priority */
 	struct lock *wait_on_lock;		/* 해당 스레드가 기다릴 lock의 주소 */
 
+	int nice;
+	int recent_cpu;
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. */
+	struct list_elem all_elem;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */
 #endif
-#ifdef VM
+#ifdef VMglobal_tick
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
@@ -125,6 +129,7 @@ void thread_start(void);
 
 void thread_tick(void);
 void thread_print_stats(void);
+int64_t get_min_tick(void);
 
 typedef void thread_func(void *aux);
 tid_t thread_create(const char *name, int priority, thread_func *, void *);
@@ -149,6 +154,13 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+void mlfqs_calculate_priority(struct thread *t);
+void mlfqs_calculate_load_avg(void);
+void mlfqs_calculate_recent_cpu(struct thread *t);
+void mlfqs_increase_recent_cpu(void);
+void mlfqs_recalculate_priority(void);
+void mlfqs_recalculate_recent_cpu(void);
 
 void do_iret(struct intr_frame *tf);
 

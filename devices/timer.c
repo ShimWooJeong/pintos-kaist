@@ -162,7 +162,24 @@ timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
 	thread_tick();
-	thread_wakeup(ticks); /* 지정된 틱 시간에 깨어날 스레드를 깨우는 함수 호출 */
+	if (thread_mlfqs)
+	{
+		mlfqs_increase_recent_cpu();
+		if (ticks % 4 == 0)
+		{
+			mlfqs_recalculate_priority();
+			if (timer_ticks() % TIMER_FREQ == 0) /* ticks % 100 == 0*/
+			{
+				mlfqs_calculate_load_avg();
+				mlfqs_recalculate_recent_cpu();
+			}
+		}
+	}
+
+	if (get_min_tick() <= ticks)
+	{
+		thread_wakeup(ticks); /* 지정된 틱 시간에 깨어날 스레드를 깨우는 함수 호출 */
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
