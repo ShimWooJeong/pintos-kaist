@@ -497,7 +497,7 @@ int thread_get_nice(void)
 int thread_get_load_avg(void)
 {
 	enum intr_level old_level = intr_disable();
-	int return_load_avg = fp_to_int(multi_mixed(load_avg, 100));
+	int return_load_avg = fp_to_int(multi_fp(load_avg, int_to_fp(100)));
 	// 인터럽트 끄고 계산하고 키고 리턴하고 계산도 실수연산
 	intr_set_level(old_level);
 	return return_load_avg;
@@ -681,26 +681,29 @@ next_thread_to_run(void)
 void do_iret(struct intr_frame *tf)
 {
 	__asm __volatile(
-		"movq %0, %%rsp\n"
-		"movq 0(%%rsp),%%r15\n"
-		"movq 8(%%rsp),%%r14\n"
-		"movq 16(%%rsp),%%r13\n"
-		"movq 24(%%rsp),%%r12\n"
-		"movq 32(%%rsp),%%r11\n"
-		"movq 40(%%rsp),%%r10\n"
-		"movq 48(%%rsp),%%r9\n"
-		"movq 56(%%rsp),%%r8\n"
-		"movq 64(%%rsp),%%rsi\n"
-		"movq 72(%%rsp),%%rdi\n"
-		"movq 80(%%rsp),%%rbp\n"
-		"movq 88(%%rsp),%%rdx\n"
-		"movq 96(%%rsp),%%rcx\n"
-		"movq 104(%%rsp),%%rbx\n"
-		"movq 112(%%rsp),%%rax\n"
-		"addq $120,%%rsp\n"
-		"movw 8(%%rsp),%%ds\n"
-		"movw (%%rsp),%%es\n"
-		"addq $32, %%rsp\n"
+		/* intr_frame의 gp_register 구조체를 cpu에 복원하는 부분 */
+		/* rsp를 8씩 내려가며 각 정보를 순서대로 cpu 범용 레지스터에 복원 */
+		"movq %0, %%rsp\n"		  /* 인자로 들어온 *tf의 값을 CPU의 rsp에 저장 */
+		"movq 0(%%rsp),%%r15\n"	  /* rsp 위치의 값을 레지스터 r15에 저장 */
+		"movq 8(%%rsp),%%r14\n"	  /* rsp+8 위치의 값을 레지스터 r14에 저장 */
+		"movq 16(%%rsp),%%r13\n"  /* rsp+16 위치의 값을 레지스터 r14에 저장 */
+		"movq 24(%%rsp),%%r12\n"  /* rsp+24 위치의 값을 레지스터 r14에 저장 */
+		"movq 32(%%rsp),%%r11\n"  /* rsp+32 위치의 값을 레지스터 r14에 저장 */
+		"movq 40(%%rsp),%%r10\n"  /* rsp+40 위치의 값을 레지스터 r14에 저장 */
+		"movq 48(%%rsp),%%r9\n"	  /* rsp+48 위치의 값을 레지스터 r14에 저장 */
+		"movq 56(%%rsp),%%r8\n"	  /* rsp+56 위치의 값을 레지스터 r14에 저장 */
+		"movq 64(%%rsp),%%rsi\n"  /* rsp+64 위치의 값을 레지스터 r14에 저장 */
+		"movq 72(%%rsp),%%rdi\n"  /* rsp+72 위치의 값을 레지스터 r14에 저장 */
+		"movq 80(%%rsp),%%rbp\n"  /* rsp+80 위치의 값을 레지스터 r14에 저장 */
+		"movq 88(%%rsp),%%rdx\n"  /* rsp+88 위치의 값을 레지스터 r14에 저장 */
+		"movq 96(%%rsp),%%rcx\n"  /* rsp+96 위치의 값을 레지스터 r14에 저장 */
+		"movq 104(%%rsp),%%rbx\n" /* rsp+104 위치의 값을 레지스터 r14에 저장 */
+		"movq 112(%%rsp),%%rax\n" /* rsp+112 위치의 값을 레지스터 r14에 저장 */
+		/* 여기까진 여전히 rsp가 tf 구조체의 시작점을 가리키고 있기 때문에 위치를 바꿔줌 */
+		"addq $120,%%rsp\n"	   /* rsp에 120(gp_register 크기) 더해줌 */
+		"movw 8(%%rsp),%%ds\n" /* rsp+8 위치의 값을 레지스터 ds에 저장 */
+		"movw (%%rsp),%%es\n"  /* rsp 위치의 값을 레지스터 es에 저장 */
+		"addq $32, %%rsp\n"	   /* rsp의 값을 32만큼 증가 = rsp가 rip를 가리키게 됨 */
 		"iretq"
 		: : "g"((uint64_t)tf) : "memory");
 }
