@@ -8,6 +8,9 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "filesys/file.h"
+#include "include/lib/stdio.h"
+#include "userprog/process.h"
+#include "include/filesys/filesys.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -97,13 +100,10 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		thread_exit();
 		break;
 	}
-
-	// printf("system call!\n");
 }
 
 /* 주소 유효성 검사: 포인터가 가리키는 주소가 유저 영역인지 확인 */
 /* 잘못된 접근일 경우 프로세스 종료(exit(-1)) */
-/* block의 일부가 이런 영역들 중 하나인 블록을 가리키는 포인터라면 조건 추가해야 할 듯... 저게 먼데 */
 void check_address(void *addr)
 {
 	if (!is_user_vaddr(addr) || addr == NULL || pml4_get_page(thread_current()->pml4, addr) == NULL)
@@ -134,6 +134,7 @@ void exit(int status)
 pid_t fork(const char *thread_name)
 {
 	/* 현재 프로세스의 복제본인 새 프로세스 생성 */
+	check_address(thread_name);
 	/* 마지막에 하기 */
 }
 
@@ -173,19 +174,18 @@ int open(const char *file)
 	/* file이라는 이름을 가진 파일을 열기 */
 	/* 성공 시, 파일 식별자로 불리는 비음수 정수(0 이상) 반환, 실패 시 -1 반환 */
 	lock_acquire(&filesys_lock);
-	struct file *open_f = filesys_open(file);
+	struct file *target_f = filesys_open(file);
 
-	if (open_f == NULL)
+	if (target_f == NULL)
 	{
+		lock_release(&filesys_lock);
 		return -1;
 	}
 
-	int fd = process_add_file(open_f);
-
+	int fd = process_add_file(target_f);
 	if (fd == -1)
 	{
-		file_close(open_f);
-		return -1;
+		file_close(target_f);
 	}
 	lock_release(&filesys_lock);
 	return fd;
@@ -194,28 +194,30 @@ int open(const char *file)
 int filesize(int fd)
 {
 	/* fd로서 열려 있는 파일의 크기가 몇 바이트인 지 반환 */
-	struct file *open_f = process_get_file(fd);
+	struct file *target_f = process_get_file(fd);
 
-	if (open_f == NULL)
+	if (target_f == NULL)
 	{
 		return -1;
 	}
 
-	return file_length(open_f);
+	return file_length(target_f);
 }
 
 int read(int fd, void *buffer, unsigned size)
 {
 	check_address(buffer);
-	int read_bytes;
+	check_address(buffer + size - 1); // 버퍼 끝 주소도 유저 영역 내에 있는지 체크
+	int read_bytes = 0;
 
 	/* buffer 안에 fd로 열려있는 파일로부터 size 바이트를 읽고 읽어낸 바이트의 수를 반환 */
 	/* 파일 끝에서 시도하면 0, 파일이 읽어질 수 없었다면 -1 반환 */
-	if (fd == 0)
+	lock_acquire(&filesys_lock); /* 파일에 동시 접근이 발생할 수 있기 때문에 lock 걸기 */
+	if (fd == STDIN_FILENO)
 	{
-		unsigned char *read_buf = buffer;
+		char *read_buf = (char *)buffer;
 		/* 표준 입력, 키보드의 데이터를 읽어 버퍼에 저장 */
-		for (read_bytes = 0; read_bytes <= size; read_bytes++)
+		for (read_bytes; read_bytes < size; read_bytes++)
 		{
 			char c = input_getc(); /* input_getc(): 키보드로부터 입력받은 문자 반환 함수  */
 			*read_buf++ = c;	   /* 버퍼에 입력받은 문자 저장 */
@@ -224,34 +226,33 @@ int read(int fd, void *buffer, unsigned size)
 				break;
 			}
 		}
-		return read_bytes;
-	}
-	else if (fd == 1) /* 표준 출력 */
-	{
-		return -1;
 	}
 	else
 	{
-		struct file *open_f = process_get_file(fd);
-		lock_acquire(&filesys_lock);				  /* 파일에 동시 접근이 발생할 수 있기 때문에 lock 걸고 읽기 */
-		read_bytes = file_read(open_f, buffer, size); /* 파일의 데이터를 size만큼 읽어 buffer에 저장 후 */
-		lock_release(&filesys_lock);
+		if (fd < 2)
+		{
+			lock_release(&filesys_lock);
+			return -1;
+		}
+		struct file *target_f = process_get_file(fd);
+		if (target_f == NULL)
+		{
+			lock_release(&filesys_lock);
+			return -1;
+		}
+		read_bytes = file_read(target_f, buffer, size); /* 파일의 데이터를 size만큼 읽어 buffer에 저장 후 */
 	}
-
+	lock_release(&filesys_lock);
 	return read_bytes; /* 읽은 바이트 수 return */
 }
 
 int write(int fd, const void *buffer, unsigned size)
 {
 	check_address(buffer);
-	int write_bytes;
+	int write_bytes = 0;
 
 	/* buffer로부터 open file fd로 size 바이트를 적어줌 */
-	if (fd == 0) /* 표준 입력 */
-	{
-		return -1;
-	}
-	else if (fd == 1)
+	if (fd == STDOUT_FILENO)
 	{
 		/* 표준 출력, 버퍼에 저장된 값을 console에 출력 후 버퍼 크기 반환 */
 		putbuf(buffer, size);
@@ -259,10 +260,18 @@ int write(int fd, const void *buffer, unsigned size)
 	}
 	else
 	{
+		if (fd < 2)
+		{
+			return -1;
+		}
 		/* 버퍼에 저장된 데이터를 크기만큼 파일에 기록 후 기록한 바이트 수 반환 */
-		struct file *open_f = process_get_file(fd);
+		struct file *target_f = process_get_file(fd);
+		if (target_f == NULL)
+		{
+			return -1;
+		}
 		lock_acquire(&filesys_lock);
-		write_bytes = file_write(open_f, buffer, size);
+		write_bytes = file_write(target_f, buffer, size);
 		lock_release(&filesys_lock);
 	}
 
@@ -271,21 +280,49 @@ int write(int fd, const void *buffer, unsigned size)
 
 void seek(int fd, unsigned position)
 {
+	/* 열린 파일의 위치(offset)을 이동하는 시스템 콜 */
+	/* position: 현재 위치(offset)을 기준으로 이동할 거리 */
+	if (fd < 2)
+	{
+		return;
+	}
+	/* 파일 디스크립터를 이용해 파일 객체 검색 */
+	struct file *target_f = process_get_file(fd);
+	if (target_f == NULL)
+	{
+		return;
+	}
+	/* 해당 열린 파일의 위치(offset)을 position만큼 이동 */
+	file_seek(target_f, position);
 }
 
 unsigned
 tell(int fd)
 {
+	/* 열린 파일의 위치(offset)을 알려주는 시스템 콜 */
+	/* 성공 시 파일 위치를 반환, 실패 시 -1 반환 */
+	if (fd < 2)
+	{
+		return;
+	}
+	/* 파일 디스크립터를 이용해 파일 객체 검색 */
+	struct file *target_f = process_get_file(fd);
+	if (target_f == NULL)
+	{
+		return;
+	}
+	/* 해당 열린 파일의 위치 반환 */
+	return file_tell(target_f);
 }
 
 void close(int fd)
 {
-	struct file *close_file = process_get_file(fd);
+	struct file *target_f = process_get_file(fd);
 
-	if (close_file == NULL)
+	if (target_f == NULL)
 	{
 		return;
 	}
+	file_close(target_f);
 	process_close_file(fd);
-	file_close(close_file);
 }

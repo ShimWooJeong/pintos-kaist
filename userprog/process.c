@@ -378,20 +378,22 @@ int process_add_file(struct file *f)
 	/* 파일 디스크립터의 최대값 1 증가 next_fd++ */
 	/* 파일 디스크립터 반환 */
 	struct file **fdt = t->fdt;
+	int fd = t->next_fd;
 
-	while (t->next_fd < FDTCOUNT_LIMIT && fdt[t->next_fd]) /* fdt의 빈자리 탐색 */
+	while (fd < FDTCOUNT_LIMIT && fdt[fd] != NULL) /* fdt의 빈자리 탐색 */
 	{
-		t->next_fd++;
+		fd++;
 	}
 
-	if (t->next_fd >= FDTCOUNT_LIMIT) /* 예외처리 - FDT 꽉 찼을 경우ㄴ */
+	if (fd >= FDTCOUNT_LIMIT) /* 예외처리 - FDT 꽉 찼을 경우ㄴ */
 	{
 		return -1;
 	}
 
-	t->fdt[t->next_fd] = f;
+	t->next_fd = fd;
+	t->fdt[fd] = f;
 
-	return t->next_fd;
+	return fd;
 }
 
 /* fdt에서 fd에 해당하는 파일 반환하는 함수 */
