@@ -11,6 +11,14 @@
         "flags.h": "c",
         "__config": "c",
         "version": "c",
-        "cstdint": "c"
+        "cstdint": "c",
+        "loader.h": "c",
+        "syscall.h": "c",
+        "stdint.h": "c",
+        "init.h": "c",
+        "filesys.h": "c",
+        "disk.h": "c",
+        "file.h": "c",
+        "fixed_point.h": "c"
     }
 }
