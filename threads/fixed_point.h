@@ -1,51 +1,17 @@
-#include <stdio.h>
-#define f (1<<14)
+/**
+ * NOTE: [Part3] 고정소수점 연산에 필요한 로직
+ *
+ * 17.14 고정 소수점 숫자 표현을 사용합니다.
+ */
 
-int int_to_fp(int n){
-    return n * f;
-}
+#define F (1 << 14) /* 1 in 17.14 format */
 
-int fp_to_int(int x){
-    return x / f;
-}
+typedef int32_t fixed_point; /* 고정 소수점을 나타내는 타입 */
 
-int fp_to_int_round(int x){
-    if(x >= 0){
-        return (x+f/2)/f;
-    }else{
-        return (x-f/2)/f;
-    }
-}
-
-int add_fp(int x, int y){
-    return x+y;
-}
-
-int sub_fp(int x, int y){
-    return x-y;
-}
-
-int add_mixed(int x, int n){
-    return x+n*f;
-}
-
-int sub_mixed(int x, int n){
-    return x-n*f;
-}
-
-int multi_fp(int x, int y){
-    return ((int64_t)x)*y/f;
-}
-
-int multi_mixed(int x, int n){
-    return x * n;
-}
-
-int div_fp(int x, int y){
-    return ((int64_t)x)*f/y;
-}
-
-int div_mixed(int x, int n){
-    return x/n;
-
-}
+fixed_point int_to_fp(int n);
+int fp_to_int_round_zero(fixed_point x);
+int fp_to_int_round_near(fixed_point x);
+fixed_point add_fp(fixed_point x, fixed_point y);
+fixed_point sub_fp(fixed_point x, fixed_point y);
+fixed_point mul_fp(fixed_point x, fixed_point y);
+fixed_point div_fp(fixed_point x, fixed_point y);

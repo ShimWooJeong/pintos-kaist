@@ -39,8 +39,6 @@ process_init(void)
  * before process_create_initd() returns. Returns the initd's
  * thread id, or TID_ERROR if the thread cannot be created.
  * Notice that THIS SHOULD BE CALLED ONCE. */
-/* process_create_initd = file_name을 인자로 받음 */
-/* file_name = 실행할 프로그램 이름 */
 tid_t process_create_initd(const char *file_name)
 {
 	char *fn_copy;
@@ -51,16 +49,10 @@ tid_t process_create_initd(const char *file_name)
 	fn_copy = palloc_get_page(0);
 	if (fn_copy == NULL)
 		return TID_ERROR;
-	/* fn_copy 주소값에 file_name 복사 */
 	strlcpy(fn_copy, file_name, PGSIZE);
 
-	/* 인자로 받은 file_name을 passing해 실행 파일 이름만 thread_create()에 전달되도록 */
-	char *token_p;
-	strtok_r(file_name, " ", &token_p);
-
-	printf("\nfile_name: %s", file_name); /* file_name = args-single */
-	printf("\nfn_copy: %s", fn_copy);	  /* fny_copy = args-single onearg */
-
+	char *save_ptr;
+	file_name = strtok_r(file_name, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -175,11 +167,8 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
-/* process_exec = f_name을 인자로 받음 */
-/* f_name = 커맨드라인에서 받은 인자 모음 (full_name) */
 int process_exec(void *f_name)
 {
-	printf("\nprocess_exec input f_name: %s", f_name); /* f_name = args-single onearg */
 	char *file_name = f_name;
 	bool success;
 
@@ -207,14 +196,14 @@ int process_exec(void *f_name)
 	/* strtok_r 함수는 원본 문자열을 변경함 -> " "를 \0으로 대체 */
 	/* 그래서 원본인 file_name이 첫 인자 문자열이 됨 = args-single */
 	argvs[argc] = token;
-	printf("\n\nargvs[%d] : %s\n", argc, argvs[argc]);
+	// printf("\n\nargvs[%d] : %s\n", argc, argvs[argc]);
 
 	while (token != NULL)
 	{
 		token = strtok_r(NULL, " ", &save_ptr);
 		argc++;
 		argvs[argc] = token;
-		printf("argvs[%d] : %s\n", argc, argvs[argc]);
+		// printf("argvs[%d] : %s\n", argc, argvs[argc]);
 	}
 
 	/* And then load the binary */
@@ -228,7 +217,7 @@ int process_exec(void *f_name)
 	/* 마지막 인자로 intr_frame을 넘겨주고, rsi&rdi 레지스터에 할당하는 것도 argu_stack에서 하도록 */
 	argument_stack(argvs, argc, &_if);
 
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* If load failed, quit. */
 	palloc_free_page(file_name);
@@ -236,6 +225,51 @@ int process_exec(void *f_name)
 	/* Start switched process. */
 	do_iret(&_if);
 	NOT_REACHED();
+}
+
+void argument_stack(char **argvs, int argc, struct intr_frame *if_)
+{
+	char *argv_addr[128]; /* 프로그램 이름 및 인자의 '주소'를 저장할 포인터 배열 */
+
+	/* 프로그램 이름 및 인자 push */
+	int i, j;
+	for (i = argc - 1; i > -1; i--)
+	{
+		int len = strlen(argvs[i]) + 1; /* +1을 하는 이유: '\0'이 포함된 인자 문자열의 길이 */
+		if_->rsp -= len;
+		memcpy(if_->rsp, argvs[i], len);
+		argv_addr[i] = if_->rsp;
+		// printf("argv_address[%d]: %p\n", i, &argv_addr[i]);
+	}
+
+	/* word-align = 8의 배수 맞춰주기 */
+	while (if_->rsp % 8 != 0)
+	{
+		if_->rsp -= sizeof(uint8_t);
+		*(uint8_t *)if_->rsp = 0;
+	}
+
+	/* 전체 문자열의 끝을 나타내는 것 같음, 0으로 set 해주기 */
+	if_->rsp -= sizeof(char *);
+	memset(if_->rsp, 0, sizeof(char *));
+
+	/* 프로그램 이름 및 인자의 '주소' push */
+	for (i = argc - 1; i > -1; i--)
+	{
+		if_->rsp -= sizeof(char *);
+		memcpy(if_->rsp, &argv_addr[i], sizeof(char *));
+	}
+
+	/* fake address(0) push */
+	/* 원래는 return_addr, 즉 함수를 호출하는 부분의 다음 수행 명령어 주소를 저장 */
+	if_->rsp -= sizeof(void *);
+	memset(if_->rsp, 0, sizeof(void *));
+
+	/* rdi레지스터에 argc(문자열의 개수) push */
+	if_->R.rdi = argc;
+	/* rsi레지스터에 argvs의 첫 주소 push */
+	/* fake_addr 위에 argvs[0]이니까 fake_addr 크기만큼 더한 위치 */
+	if_->R.rsi = if_->rsp + sizeof(void *);
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -252,9 +286,8 @@ int process_wait(tid_t child_tid UNUSED)
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while (1)
+	for (int i = 0; i <= 1000000000; i++)
 	{
-		/* 바로 return 해버리면 끝나버리니까 */
 	}
 
 	return -1;
@@ -268,6 +301,12 @@ void process_exit(void)
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+
+	for (int i = 0; i < FDTCOUNT_LIMIT; i++)
+	{
+		close(i); /* 해당 프로세스의 fdt의 모든 값을 0으로 만들어줌 */
+	}
+	palloc_free_multiple(curr->fdt, FDT_PAGES); /* fd table 메모리 해제 */
 
 	process_cleanup();
 }
@@ -310,6 +349,79 @@ void process_activate(struct thread *next)
 
 	/* Set thread's kernel stack for use in processing interrupts. */
 	tss_update(next);
+}
+
+/* Project(2) Process hierarchy */
+// struct thread *get_child_process(int pid)
+// {
+// 	/* 자식 리스트에 접근하여 프로세스 디스크립터 검색 */
+// 	/* 해당 pid가 존재하면 프로세스 디스크립터 반환 */
+// 	/* 리스트에 존재하지 않으면 NULL 리턴 */
+// 	struct thread *t = thread_current();
+// 	struct list_elem *e = list_begin(&t->child_list);
+
+// 	for (e; e != list_end(&t->child_list); e = list_next(e))
+// 	{
+// 		struct thread *t = list_entry(e, struct thread, child_elem);
+// 		if (t->tid == pid)
+// 			return t;
+// 	}
+// 	return NULL;
+// }
+
+/* fdt에 파일을 추가하는 함수 */
+int process_add_file(struct file *f)
+{
+	/* 파일 객체에 대한 파일 디스크립터 생성 */
+	struct thread *t = thread_current();
+	/* 파일 객체를 파일 디스크립터 테이블에 추가 */
+	/* 파일 디스크립터의 최대값 1 증가 next_fd++ */
+	/* 파일 디스크립터 반환 */
+	struct file **fdt = t->fdt;
+
+	while (t->next_fd < FDTCOUNT_LIMIT && fdt[t->next_fd]) /* fdt의 빈자리 탐색 */
+	{
+		t->next_fd++;
+	}
+
+	if (t->next_fd >= FDTCOUNT_LIMIT) /* 예외처리 - FDT 꽉 찼을 경우ㄴ */
+	{
+		return -1;
+	}
+
+	t->fdt[t->next_fd] = f;
+
+	return t->next_fd;
+}
+
+/* fdt에서 fd에 해당하는 파일 반환하는 함수 */
+struct file *process_get_file(int fd)
+{
+	struct thread *t = thread_current();
+	struct file **fdt = t->fdt;
+	/* 프로세스의 파일 디스크립터 테이블을 검색하여 파일 객체의 주소를 반환, 없으면 NULL 반환 */
+
+	if (fd >= FDTCOUNT_LIMIT || fd < 2)
+	{
+		return NULL;
+	}
+
+	return fdt[fd];
+}
+
+/* fdt에서 fd에 해당하는 index에 NULL을 할당해 파일과의 연결 끊기 */
+void process_close_file(int fd)
+{
+	struct thread *t = thread_current();
+	struct file **fdt = t->fdt;
+	/* 파일 디스크립터에 해당하는 파일을 닫고 해당 엔트리 초기화 */
+
+	if (fd >= FDTCOUNT_LIMIT || fd < 2)
+	{
+		return NULL;
+	}
+
+	fdt[fd] = NULL;
 }
 
 /* We load ELF binaries.  The following definitions are taken
@@ -387,6 +499,7 @@ load(const char *file_name, struct intr_frame *if_)
 	bool success = false;
 	int i;
 
+	// hex_dump(&file_ofs, )
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create();
 	if (t->pml4 == NULL)
@@ -483,51 +596,6 @@ done:
 	/* We arrive here whether the load is successful or not. */
 	file_close(file);
 	return success;
-}
-
-void argument_stack(char **argvs, int argc, struct intr_frame *if_)
-{
-	char *argv_addr[128]; /* 프로그램 이름 및 인자의 '주소'를 저장할 포인터 배열 */
-
-	/* 프로그램 이름 및 인자 push */
-	int i, j;
-	for (i = argc - 1; i > -1; i--)
-	{
-		int len = strlen(argvs[i]) + 1; /* +1을 하는 이유: '\0'이 포함된 인자 문자열의 길이 */
-		if_->rsp -= len;
-		memcpy(if_->rsp, argvs[i], len);
-		argv_addr[i] = if_->rsp;
-		printf("argv_address[%d]: %p\n", i, &argv_addr[i]);
-	}
-
-	/* word-align = 8의 배수 맞춰주기 */
-	while (if_->rsp % 8 != 0)
-	{
-		if_->rsp -= sizeof(uint8_t);
-		*(uint8_t *)if_->rsp = 0;
-	}
-
-	/* 전체 문자열의 끝을 나타내는 것 같음, 0으로 set 해주기 */
-	if_->rsp -= sizeof(char *);
-	memset(if_->rsp, 0, sizeof(char *));
-
-	/* 프로그램 이름 및 인자의 '주소' push */
-	for (i = argc - 1; i > -1; i--)
-	{
-		if_->rsp -= sizeof(char *);
-		memcpy(if_->rsp, &argv_addr[i], sizeof(char *));
-	}
-
-	/* fake address(0) push */
-	/* 원래는 return_addr, 즉 함수를 호출하는 부분의 다음 수행 명령어 주소를 저장 */
-	if_->rsp -= sizeof(void *);
-	memset(if_->rsp, 0, sizeof(void *));
-
-	/* rdi레지스터에 argc(문자열의 개수) push */
-	if_->R.rdi = argc;
-	/* rsi레지스터에 argvs의 첫 주소 push */
-	/* fake_addr 위에 argvs[0]이니까 fake_addr 크기만큼 더한 위치 */
-	if_->R.rsi = if_->rsp + sizeof(void *);
 }
 
 /* Checks whether PHDR describes a valid, loadable segment in
