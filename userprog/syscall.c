@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -11,6 +12,7 @@
 #include "include/lib/stdio.h"
 #include "userprog/process.h"
 #include "include/filesys/filesys.h"
+#include "include/threads/palloc.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -146,11 +148,24 @@ int exec(const char *file)
 	/* 현재 프로세스가 cmd_line에서 이름이 주어지는 실행 가능한 프로세스로 변경 */
 	/* 이 때, 주어진 인자 전달 -> 성공 시 반환 x, 실패 시 exit state -1 반환 및 프로세스 종료 */
 	/* 이 함수는 호출한 스레드의 이름은 바꾸지 않음 & file descriptor는 호출 시 열린 상태로 있다 */
+	char *file_name = palloc_get_page(PAL_ZERO); /* 수정 가능하도록 copy하기 위한 메모리 공간 */
+
+	if (file_name == NULL)
+	{
+		exit(-1);
+	}
+
+	strlcpy(file_name, file, PGSIZE); /* file을 file_name으로 복사 */
+
+	if (process_exec(file_name) == -1) /* process_exec 함수 호출로 파일 실행 */
+	{
+		exit(-1);
+	}
 }
 
 int wait(pid_t pid)
 {
-	/* 마지막에 하기 */
+	process_wait(pid);
 }
 
 bool create(const char *file, unsigned initial_size)
@@ -158,16 +173,19 @@ bool create(const char *file, unsigned initial_size)
 	check_address(file);
 	/* file을 이름으로 하고, 크기가 initial_size인 새로운 파일 생성, 여는 건 X */
 	/* 성공 시 true, 실패 시 false 반환 */
-	return filesys_create(file, initial_size);
+	lock_acquire(&filesys_lock);
+	bool result = filesys_create(file, initial_size);
+	lock_release(&filesys_lock);
+	return result;
 }
 
 bool remove(const char *file)
 {
 	check_address(file);
-	lock_acquire(&filesys_lock);
 	/* file이라는 이름을 가진 파일 삭제 */
 	/* 성공 시 true, 실패 시 false 반환 */
 	/* 파일이 열려있는지 닫혀있는지 여부와 관계없이 삭제될 수 있음 */
+	lock_acquire(&filesys_lock);
 	bool result = filesys_remove(file);
 	lock_release(&filesys_lock);
 	return result;
@@ -329,6 +347,8 @@ void close(int fd)
 	{
 		return;
 	}
+	lock_acquire(&filesys_lock);
 	file_close(target_f);
+	lock_release(&filesys_lock);
 	process_close_file(fd);
 }

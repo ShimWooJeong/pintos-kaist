@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "userprog/syscall.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -211,7 +212,10 @@ int process_exec(void *f_name)
 	success = load(file_name, &_if);
 
 	if (!success)
+	{
+		palloc_free_page(file_name);
 		return -1;
+	}
 
 	/* user stack에 프로그램 이름 & 인자들 저장하는 함수 */
 	/* 마지막 인자로 intr_frame을 넘겨주고, rsi&rdi 레지스터에 할당하는 것도 argu_stack에서 하도록 */
@@ -286,11 +290,17 @@ int process_wait(tid_t child_tid UNUSED)
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	for (int i = 0; i <= 1000000000; i++)
+	/* 자식 프로세스가 종료될 때까지 기다리고, 종료 상태 반환 */
+	struct thread *child = get_child_process(child_tid);
+
+	if (child == NULL)
 	{
+		return -1;
 	}
 
-	return -1;
+	sema_down(&child->exit_sema); /* thread가 종료될 때 sema_up */
+	list_remove(&child->child_elem);
+	return child->exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -307,7 +317,7 @@ void process_exit(void)
 		close(i); /* 해당 프로세스의 fdt의 모든 값을 0으로 만들어줌 */
 	}
 	palloc_free_multiple(curr->fdt, FDT_PAGES); /* fd table 메모리 해제 */
-
+	sema_up(&curr->exit_sema);
 	process_cleanup();
 }
 
@@ -352,22 +362,22 @@ void process_activate(struct thread *next)
 }
 
 /* Project(2) Process hierarchy */
-// struct thread *get_child_process(int pid)
-// {
-// 	/* 자식 리스트에 접근하여 프로세스 디스크립터 검색 */
-// 	/* 해당 pid가 존재하면 프로세스 디스크립터 반환 */
-// 	/* 리스트에 존재하지 않으면 NULL 리턴 */
-// 	struct thread *t = thread_current();
-// 	struct list_elem *e = list_begin(&t->child_list);
+struct thread *get_child_process(int pid)
+{
+	/* 자식 리스트에 접근하여 프로세스 디스크립터 검색 */
+	/* 해당 pid가 존재하면 프로세스 디스크립터 반환 */
+	/* 리스트에 존재하지 않으면 NULL 리턴 */
+	struct thread *t = thread_current();
+	struct list_elem *e = list_begin(&t->child_list);
 
-// 	for (e; e != list_end(&t->child_list); e = list_next(e))
-// 	{
-// 		struct thread *t = list_entry(e, struct thread, child_elem);
-// 		if (t->tid == pid)
-// 			return t;
-// 	}
-// 	return NULL;
-// }
+	for (e; e != list_end(&t->child_list); e = list_next(e))
+	{
+		struct thread *t = list_entry(e, struct thread, child_elem);
+		if (t->tid == pid)
+			return t;
+	}
+	return NULL;
+}
 
 /* fdt에 파일을 추가하는 함수 */
 int process_add_file(struct file *f)
@@ -508,6 +518,7 @@ load(const char *file_name, struct intr_frame *if_)
 		goto done;
 	process_activate(thread_current());
 
+	lock_acquire(&filesys_lock);
 	/* Open executable file. */
 	file = filesys_open(file_name);
 	if (file == NULL)
@@ -597,6 +608,7 @@ load(const char *file_name, struct intr_frame *if_)
 done:
 	/* We arrive here whether the load is successful or not. */
 	file_close(file);
+	lock_release(&filesys_lock);
 	return success;
 }
 
