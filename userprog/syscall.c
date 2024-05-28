@@ -106,7 +106,9 @@ void syscall_handler(struct intr_frame *f UNUSED)
 /* 잘못된 접근일 경우 프로세스 종료(exit(-1)) */
 void check_address(void *addr)
 {
-	if (!is_user_vaddr(addr) || addr == NULL || pml4_get_page(thread_current()->pml4, addr) == NULL)
+	struct thread *current = thread_current();
+
+	if (!is_user_vaddr(addr) || addr == NULL || pml4_get_page(current->pml4, addr) == NULL)
 	{
 		exit(-1);
 	}
@@ -162,10 +164,13 @@ bool create(const char *file, unsigned initial_size)
 bool remove(const char *file)
 {
 	check_address(file);
+	lock_acquire(&filesys_lock);
 	/* file이라는 이름을 가진 파일 삭제 */
 	/* 성공 시 true, 실패 시 false 반환 */
 	/* 파일이 열려있는지 닫혀있는지 여부와 관계없이 삭제될 수 있음 */
-	return filesys_remove(file);
+	bool result = filesys_remove(file);
+	lock_release(&filesys_lock);
+	return result;
 }
 
 int open(const char *file)
@@ -217,7 +222,7 @@ int read(int fd, void *buffer, unsigned size)
 	{
 		char *read_buf = (char *)buffer;
 		/* 표준 입력, 키보드의 데이터를 읽어 버퍼에 저장 */
-		for (read_bytes; read_bytes < size; read_bytes++)
+		for (read_bytes = 0; read_bytes < size; read_bytes++)
 		{
 			char c = input_getc(); /* input_getc(): 키보드로부터 입력받은 문자 반환 함수  */
 			*read_buf++ = c;	   /* 버퍼에 입력받은 문자 저장 */
@@ -249,6 +254,7 @@ int read(int fd, void *buffer, unsigned size)
 int write(int fd, const void *buffer, unsigned size)
 {
 	check_address(buffer);
+	check_address(buffer + size - 1); // 버퍼 끝 주소도 유저 영역 내에 있는지 체크
 	int write_bytes = 0;
 
 	/* buffer로부터 open file fd로 size 바이트를 적어줌 */
