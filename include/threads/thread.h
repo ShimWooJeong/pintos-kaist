@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/interrupt.h"
 #include "threads/fixed_point.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -29,7 +30,7 @@ typedef int tid_t;
 #define PRI_DEFAULT 31 /* Default priority. */
 #define PRI_MAX 63	   /* Highest priority. */
 
-#define FDT_PAGES 64
+#define FDT_PAGES 3
 #define FDTCOUNT_LIMIT FDT_PAGES * (1 << 9)
 
 /* A kernel thread or user process.
@@ -114,7 +115,15 @@ struct thread
 	struct list_elem all_elem;
 
 	/* Project(2) */
-	int exit_status;
+	struct thread *parent;	/* 부모 프로세스 */
+	struct list child_list; /* 자식 리스트 */
+	struct list_elem child_elem;
+
+	// struct semaphore wait_sema;
+	struct semaphore exit_sema; /* 자식 프로세스 종료 대기 세마포어 */
+	struct semaphore load_sema; /* 자식 프로세스 생성 대기 세마포어 */
+
+	int exit_status; /* 종료 상태 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

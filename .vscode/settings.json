@@ -19,6 +19,10 @@
         "filesys.h": "c",
         "disk.h": "c",
         "file.h": "c",
-        "fixed_point.h": "c"
+        "fixed_point.h": "c",
+        "malloc.h": "c",
+        "gdt.h": "c",
+        "__threading_support": "c",
+        "thread": "c"
     }
 }
