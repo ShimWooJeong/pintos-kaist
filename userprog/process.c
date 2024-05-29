@@ -222,6 +222,7 @@ __do_fork(void *aux)
 	if (succ)
 		do_iret(&if_);
 error:
+	succ = false;
 	sema_up(&current->fork_sema);
 	printf("--------------------------------in__do_fork TID_ERROR\n");
 	exit(TID_ERROR);
