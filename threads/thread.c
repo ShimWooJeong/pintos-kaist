@@ -209,7 +209,10 @@ tid_t thread_create(const char *name, int priority,
 	/* Allocate thread. */
 	t = palloc_get_page(PAL_ZERO);
 	if (t == NULL)
+	{
+		printf("-------------------in thread_create\n");
 		return TID_ERROR;
+	}
 
 	/* Initialize thread. */
 	init_thread(t, name, priority);
@@ -231,6 +234,8 @@ tid_t thread_create(const char *name, int priority,
 	t->fdt = palloc_get_multiple(PAL_ZERO, FDT_PAGES);
 	if (t->fdt == NULL)
 	{
+		palloc_free_page(t);
+		printf("-------------------in thread_create\n");
 		return TID_ERROR;
 	}
 
@@ -238,9 +243,10 @@ tid_t thread_create(const char *name, int priority,
 	t->fdt[0] = 1; /* STDIN_FILENO: 표준 입력 */
 	t->fdt[1] = 2; /* STDOUT_FILENO: 표준 출력 */
 
-	t->parent = thread_current();
 	sema_init(&t->exit_sema, 0);
 	sema_init(&t->load_sema, 0);
+	sema_init(&t->wait_sema, 0);
+	sema_init(&t->fork_sema, 0);
 
 	list_push_back(&thread_current()->child_list, &t->child_elem);
 

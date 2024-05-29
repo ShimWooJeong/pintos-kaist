@@ -2,6 +2,7 @@
 #define USERPROG_SYSCALL_H
 #include <stdbool.h>
 #include "threads/synch.h"
+#include "threads/thread.h"
 
 typedef int pid_t;
 typedef int off_t;
@@ -13,7 +14,7 @@ void syscall_entry(void);
 void check_address(void *addr);
 void halt(void);
 void exit(int status);
-pid_t fork(const char *thread_name);
+pid_t fork(const char *thread_name, struct intr_frame *f);
 int exec(const char *file);
 int wait(pid_t pid);
 bool create(const char *file, unsigned initial_size);

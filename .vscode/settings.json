@@ -23,6 +23,7 @@
         "malloc.h": "c",
         "gdt.h": "c",
         "__threading_support": "c",
-        "thread": "c"
+        "thread": "c",
+        "*.inc": "c"
     }
 }
