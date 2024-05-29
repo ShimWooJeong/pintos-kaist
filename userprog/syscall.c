@@ -63,7 +63,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		exit(f->R.rdi);
 		break;
 	case SYS_FORK:
-		f->R.rax = fork(f->R.rdi);
+		f->R.rax = fork(f->R.rdi, f);
 		break;
 	case SYS_EXEC:
 		f->R.rax = exec(f->R.rdi);
@@ -135,11 +135,11 @@ void exit(int status)
 	thread_exit();
 }
 
-pid_t fork(const char *thread_name)
+pid_t fork(const char *thread_name, struct intr_frame *f)
 {
 	/* 현재 프로세스의 복제본인 새 프로세스 생성 */
 	check_address(thread_name);
-	/* 마지막에 하기 */
+	return process_fork(thread_name, f);
 }
 
 int exec(const char *file)
@@ -165,7 +165,7 @@ int exec(const char *file)
 
 int wait(pid_t pid)
 {
-	process_wait(pid);
+	return process_wait(pid);
 }
 
 bool create(const char *file, unsigned initial_size)

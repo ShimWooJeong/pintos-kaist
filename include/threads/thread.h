@@ -115,13 +115,17 @@ struct thread
 	struct list_elem all_elem;
 
 	/* Project(2) */
-	struct thread *parent;	/* 부모 프로세스 */
-	struct list child_list; /* 자식 리스트 */
+	struct intr_frame parent_if; /* 부모 프로세스 */
+	struct list child_list;		 /* 자식 리스트 */
 	struct list_elem child_elem;
+
+	struct file *running_f;
 
 	// struct semaphore wait_sema;
 	struct semaphore exit_sema; /* 자식 프로세스 종료 대기 세마포어 */
 	struct semaphore load_sema; /* 자식 프로세스 생성 대기 세마포어 */
+	struct semaphore wait_sema;
+	struct semaphore fork_sema;
 
 	int exit_status; /* 종료 상태 */
 
