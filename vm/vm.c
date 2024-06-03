@@ -5,6 +5,8 @@
 #include "vm/inspect.h"
 #include "include/lib/kernel/hash.h"
 #include "include/lib/kernel/list.h"
+#include "include/threads/vaddr.h"
+#include "include/threads/mmu.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -133,6 +135,22 @@ vm_get_frame(void)
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 
+	/* 유저 풀에서 새로운 물리 메모리 할당 받음 */
+	/* palloc_get_page가 kva를 반환 */
+	/* physical adress = virtual adress + KERN_BASE(커널은 모두 공유) */
+	void *kva = palloc_get_page(PAL_USER);
+
+	if (kva == NULL)
+	{
+		/* kva가 NULL이라면 할당 실패, 물리 메모리 공간 꽉 찼다는 의미 */
+		/* 나중에 SWAP-OUT 처리 필요 */
+		PANIC("SWAP OUT");
+	}
+
+	/* 프레임 동적 할당 후 멤버 초기화 */
+	frame = malloc(sizeof(struct frame));
+	frame->kva = kva;
+
 	ASSERT(frame != NULL);
 	ASSERT(frame->page == NULL);
 	return frame;
@@ -174,7 +192,14 @@ void vm_dealloc_page(struct page *page)
 bool vm_claim_page(void *va UNUSED)
 {
 	struct page *page = NULL;
-	/* TODO: Fill this function */
+	struct thread *curr = thread_current();
+
+	/* spt에서 va에 해당하는 page를 가져와 vm_do_claim_page()로 매핑하기 */
+	page = spt_find_page(&curr->spt, va);
+	if (page == NULL)
+	{
+		return false;
+	}
 
 	return vm_do_claim_page(page);
 }
@@ -185,11 +210,13 @@ vm_do_claim_page(struct page *page)
 {
 	struct frame *frame = vm_get_frame();
 
-	/* Set links */
+	/* Set links, 페이지와 프레임 매핑 */
 	frame->page = page;
 	page->frame = frame;
 
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	/* 가상주소와 물리주소를 매핑한 정보를 페이지 테이블에 추가 */
+	struct thread *curr = thread_current();
+	pml4_set_page(curr->pml4, page->va, frame->kva, page->writable);
 
 	return swap_in(page, frame->kva);
 }
