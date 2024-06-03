@@ -205,7 +205,9 @@ int open(const char *file)
 		return -1;
 	}
 
+	/* fd table에 파일 추가 후 fd 반환 */
 	int fd = process_add_file(target_f);
+	/* fd table이 꽉 찼을 경우 파일 닫기 */
 	if (fd == -1)
 	{
 		file_close(target_f);
@@ -229,17 +231,20 @@ int filesize(int fd)
 
 int read(int fd, void *buffer, unsigned size)
 {
-	check_address(buffer);
-	check_address(buffer + size - 1); // 버퍼 끝 주소도 유저 영역 내에 있는지 체크
-	int read_bytes = 0;
-
 	/* buffer 안에 fd로 열려있는 파일로부터 size 바이트를 읽고 읽어낸 바이트의 수를 반환 */
 	/* 파일 끝에서 시도하면 0, 파일이 읽어질 수 없었다면 -1 반환 */
-	lock_acquire(&filesys_lock); /* 파일에 동시 접근이 발생할 수 있기 때문에 lock 걸기 */
+
+	check_address(buffer);
+	/* 버퍼 끝 주소도 유저 영역 내에 있는지 체크 */
+	check_address(buffer + size - 1);
+	int read_bytes = 0;
+
+	/* 파일에 동시 접근이 발생할 수 있기 때문에 lock 걸기 */
+	lock_acquire(&filesys_lock);
 	if (fd == STDIN_FILENO)
 	{
 		char *read_buf = (char *)buffer;
-		/* 표준 입력, 키보드의 데이터를 읽어 버퍼에 저장 */
+		/* 표준 입력 = 키보드의 데이터를 읽어 버퍼에 저장 */
 		for (read_bytes = 0; read_bytes < size; read_bytes++)
 		{
 			char c = input_getc(); /* input_getc(): 키보드로부터 입력받은 문자 반환 함수  */
@@ -252,7 +257,7 @@ int read(int fd, void *buffer, unsigned size)
 	}
 	else
 	{
-		if (fd < 2)
+		if (fd < 2) /* fd = STDOUT_FILENO, 표준 출력 */
 		{
 			lock_release(&filesys_lock);
 			return -1;
@@ -272,10 +277,10 @@ int read(int fd, void *buffer, unsigned size)
 int write(int fd, const void *buffer, unsigned size)
 {
 	check_address(buffer);
-	check_address(buffer + size - 1); // 버퍼 끝 주소도 유저 영역 내에 있는지 체크
+	/* 버퍼 끝 주소도 유저 영역 내에 있는지 체크 */
+	check_address(buffer + size - 1);
 	int write_bytes = 0;
 
-	/* buffer로부터 open file fd로 size 바이트를 적어줌 */
 	if (fd == STDOUT_FILENO)
 	{
 		/* 표준 출력, 버퍼에 저장된 값을 console에 출력 후 버퍼 크기 반환 */
@@ -284,7 +289,7 @@ int write(int fd, const void *buffer, unsigned size)
 	}
 	else
 	{
-		if (fd < 2)
+		if (fd < 2) /* fd = STDIN_FILENO, 표준 입력 */
 		{
 			return -1;
 		}

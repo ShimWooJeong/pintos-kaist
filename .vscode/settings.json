@@ -24,6 +24,26 @@
         "gdt.h": "c",
         "__threading_support": "c",
         "thread": "c",
-        "*.inc": "c"
+        "*.inc": "c",
+        "__availability": "c",
+        "__locale": "c",
+        "atomic": "c",
+        "bitset": "c",
+        "complex": "c",
+        "iterator": "c",
+        "locale": "c",
+        "optional": "c",
+        "string": "c",
+        "syscall-nr.h": "c",
+        "charconv": "c",
+        "new": "c",
+        "string_view": "c",
+        "system_error": "c",
+        "variant": "c",
+        "vector": "c",
+        "vm.h": "c",
+        "hash.h": "c",
+        "memory_resource": "c",
+        "inspect.h": "c"
     }
 }

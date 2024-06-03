@@ -235,7 +235,6 @@ tid_t thread_create(const char *name, int priority,
 	if (t->fdt == NULL)
 	{
 		palloc_free_page(t);
-		printf("-------------------in thread_create\n");
 		return TID_ERROR;
 	}
 

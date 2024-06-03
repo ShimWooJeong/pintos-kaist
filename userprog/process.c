@@ -145,6 +145,7 @@ duplicate_pte(uint64_t *pte, void *va, void *aux)
 	if (!pml4_set_page(current->pml4, va, newpage, writable))
 	{
 		/* 6. TODO: if fail to insert page, do error handling. */
+		palloc_free_page(newpage);
 		printf("-------------------in duplicate_pte4\n");
 		return false;
 	}
@@ -463,7 +464,7 @@ int process_add_file(struct file *f)
 		fd++;
 	}
 
-	if (fd >= FDTCOUNT_LIMIT) /* 예외처리 - FDT 꽉 찼을 경우ㄴ */
+	if (fd >= FDTCOUNT_LIMIT) /* 예외처리 - FDT 꽉 찼을 경우 */
 	{
 		return -1;
 	}
@@ -494,7 +495,6 @@ void process_close_file(int fd)
 {
 	struct thread *t = thread_current();
 	struct file **fdt = t->fdt;
-	/* 파일 디스크립터에 해당하는 파일을 닫고 해당 엔트리 초기화 */
 
 	if (fd >= FDTCOUNT_LIMIT || fd < 2)
 	{
