@@ -115,11 +115,11 @@ struct thread
 	struct list_elem all_elem;
 
 	/* Project(2) */
-	struct intr_frame parent_if; /* 부모 프로세스 */
+	struct intr_frame parent_if; /* 부모 프로세스의 인터럽트 프레임 */
 	struct list child_list;		 /* 자식 리스트 */
 	struct list_elem child_elem;
 
-	struct file *running_f;
+	struct file *running_f; /* 실행 중인 파일 */
 
 	// struct semaphore wait_sema;
 	struct semaphore exit_sema; /* 자식 프로세스 종료 대기 세마포어 */
@@ -131,9 +131,9 @@ struct thread
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
-	uint64_t *pml4; /* Page map level 4 */
-	struct file **fdt;
-	int next_fd;
+	uint64_t *pml4;	   /* Page map level 4 */
+	struct file **fdt; /* 파일 디스크립터 테이블 */
+	int next_fd;	   /* 파일 디스크립터 값 */
 
 #endif
 #ifdef VM
