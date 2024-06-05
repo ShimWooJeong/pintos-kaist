@@ -78,21 +78,27 @@ initd(void *f_name)
 
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
+/* 현재 프로세스를 복제해 새 프로세스를 생성 */
 tid_t process_fork(const char *name, struct intr_frame *if_ UNUSED)
 {
-	/* Clone current thread to new thread.*/
+	/* 실행 중인 부모 프로세스의 contexts를 복사한다. */
+	/* 굳이 복사를 하는 이유는 if 정보를 직접 넘길 시, 부모 프로세스가 계속 실행하며 값이 변할 수 있기 때문에 */
+	/* 부모 프로세스의 parent_if에 if값을 복사한 후, 부모 프로세스를 __do_fork의 인자로 담아준다. */
 	struct thread *t = thread_current();
 	memcpy(&t->parent_if, if_, sizeof(struct intr_frame));
 
+	/* 인자로 받은 name으로 된 새 스레드 생성 */
 	tid_t pid = thread_create(name, PRI_DEFAULT, __do_fork, t);
 
 	if (pid == TID_ERROR)
 	{
-		printf("----------------------------------in process_fork: %d\n", pid);
 		return TID_ERROR;
 	}
 
+	/* 부모 프로세스의 자식 리스트에서 방금 새로 생성된 자식 프로세스 가져오기 */
 	struct thread *child = get_child_process(pid);
+	/* 자식 프로세스의 __do_fork를 대기 */
+	/* __do_fork에서 복제가 완료되면 sema_up을 해줌으로써 대기 이탈되며 종료 */
 	sema_down(&child->fork_sema);
 
 	return pid;
@@ -353,10 +359,9 @@ void argument_stack(char **argvs, int argc, struct intr_frame *if_)
  * does nothing. */
 int process_wait(tid_t child_tid UNUSED)
 {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
 	/* 자식 프로세스가 종료될 때까지 기다리고, 종료 상태 반환 */
+
+	/* 자식 프로세스 받아오기 */
 	struct thread *child = get_child_process(child_tid);
 
 	if (child == NULL)
@@ -364,9 +369,13 @@ int process_wait(tid_t child_tid UNUSED)
 		return -1;
 	}
 
-	sema_down(&child->wait_sema); /* thread가 종료될 때 sema_up */
+	/* 자식 프로세스가 종료될 때까지 대기 = 해당 프로세스가 종료될 때 sema_up */
+	sema_down(&child->wait_sema);
+	/* 자식 프로세스가 종료되었으면 자식 리스트에서 해당 자식 삭제 */
 	list_remove(&child->child_elem);
+	/* 자식의 대기 상태 이탈 */
 	sema_up(&child->exit_sema);
+
 	return child->exit_status;
 }
 
@@ -374,19 +383,23 @@ int process_wait(tid_t child_tid UNUSED)
 void process_exit(void)
 {
 	struct thread *curr = thread_current();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
 
+	/* 해당 프로세스의 fdt의 모든 값을 0으로 만들어줌, 즉 모든 열린 파일 닫기 */
 	for (int i = 0; i < FDTCOUNT_LIMIT; i++)
 	{
-		close(i); /* 해당 프로세스의 fdt의 모든 값을 0으로 만들어줌 */
+		close(i);
 	}
-	palloc_free_multiple(curr->fdt, FDT_PAGES); /* fd table 메모리 해제 */
+
+	/* fd table 메모리 해제 */
+	palloc_free_multiple(curr->fdt, FDT_PAGES);
+
+	/* 실행 중인 파일 닫기 */
 	file_close(curr->running_f);
 	process_cleanup();
+
+	/* 자식 종료를 대기하는 부모 프로세스를 대기 상태에서 이탈되도록 */
 	sema_up(&curr->wait_sema);
+	/* 부모 프로세스가 자식을 리스트에서 지울 수 있도록 대기 */
 	sema_down(&curr->exit_sema);
 }
 
@@ -844,6 +857,19 @@ lazy_load_segment(struct page *page, void *aux)
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+
+	struct lazy_load_arg *lazy_load_arg = (struct lazy_load_arg *)aux;
+
+	file_seek(lazy_load_arg->file, lazy_load_arg->ofs);
+
+	if (file_read(lazy_load_arg->file, page->frame->kva, lazy_load_arg->read_bytes) != (int)(lazy_load_arg->read_bytes))
+	{
+		palloc_free_page(page->frame->kva);
+		return false;
+	}
+	memset(page->frame->kva + lazy_load_arg->read_bytes, 0, lazy_load_arg->zero_bytes);
+
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -877,15 +903,22 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		/* lazy_load_segment에 인자로 전달해 줄 보조 인자를 담아주기 */
+		struct lazy_load_arg *lazy_load_arg = (struct lazy_load_arg *)malloc(sizeof(struct lazy_load_arg));
+		lazy_load_arg->file = file;
+		lazy_load_arg->ofs = ofs;
+		lazy_load_arg->read_bytes = page_read_bytes;
+		lazy_load_arg->zero_bytes = page_zero_bytes;
+
 		if (!vm_alloc_page_with_initializer(VM_ANON, upage,
-											writable, lazy_load_segment, aux))
+											writable, lazy_load_segment, lazy_load_arg))
 			return false;
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }

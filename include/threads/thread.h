@@ -122,10 +122,9 @@ struct thread
 	struct file *running_f; /* 실행 중인 파일 */
 
 	// struct semaphore wait_sema;
-	struct semaphore exit_sema; /* 자식 프로세스 종료 대기 세마포어 */
-	struct semaphore load_sema; /* 자식 프로세스 생성 대기 세마포어 */
-	struct semaphore wait_sema;
-	struct semaphore fork_sema;
+	struct semaphore exit_sema; /* 자식 프로세스 exit 대기 세마포어 */
+	struct semaphore wait_sema; /* 자식 프로세스 종료 대기 세마포어 */
+	struct semaphore fork_sema; /* 자식의 load 완료 대기 세마포어 */
 
 	int exit_status; /* 종료 상태 */
 
