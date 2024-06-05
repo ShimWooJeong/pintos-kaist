@@ -127,8 +127,6 @@ void exit(int status)
 	/* 현재 동작중인 유저 프로그램 종료 */
 	/* kernel에 상태를 return 하며 종료 */
 	/* 부모 프로세스가 현재 유저 프로그램의 종료를 기다리던 중이라면 = 종료되면서 return될 그 상태를 기다림 */
-	/* return 값 rax에 넣기 */
-	/* status = 0 (성공), != 0 (error) */
 	struct thread *t = thread_current();
 	t->exit_status = status;
 	printf("%s: exit(%d)\n", t->name, status);
