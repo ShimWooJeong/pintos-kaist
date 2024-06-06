@@ -846,6 +846,7 @@ install_page(void *upage, void *kpage, bool writable)
 	 * address, then map our page there. */
 	return (pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, writable));
 }
+
 #else
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
@@ -924,16 +925,35 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
+/* 프로세스가 실행될 때 load()에서 호출, STACK의 페이지를 생성하는 함수 */
 static bool
 setup_stack(struct intr_frame *if_)
 {
 	bool success = false;
+	/* 스택은 아래로 커지니까, 스택 시작점 USER_STACK에서 PGSIZE만큼 아래로 내려간 지점에서 페이지 생성 = stack_bottom */
 	void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
 
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+	/* stack_bottm에 스택 매핑 후 페이지 요청 */
+	/* 성공 시, rsp를 그에 맞게 설정 */
+	/* 또한 페이지가 스택에 있음을 표시해야 함 */
+
+	/* 1) stack_bottom에 페이지 할당 받음 (스택은 아래로 커지니까) */
+	/* VM_MARKER_0: 스택이 저장된 메모리 페이지 식별 */
+	if (vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, 1))
+	{
+		/* 할당받은 페이지에 물리 프레임 매핑 */
+		success = vm_claim_page(stack_bottom);
+		if (success)
+		{
+			/* rsp 변경 */
+			if_->rsp = USER_STACK;
+			thread_current()->stack_bottom = stack_bottom;
+		}
+	}
 
 	return success;
 }

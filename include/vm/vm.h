@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 #include "include/lib/kernel/hash.h"
+#include "threads/mmu.h"
 
 enum vm_type
 {
@@ -70,6 +71,7 @@ struct frame
 {
 	void *kva;
 	struct page *page;
+	struct list_elem frame_elem; /* frame table 요소 */
 };
 
 /* The function table for page operations.
@@ -121,7 +123,12 @@ void vm_dealloc_page(struct page *page);
 bool vm_claim_page(void *va);
 enum vm_type page_get_type(struct page *page);
 
+/* ------------ Project3. 추가 ------------- */
 uint64_t hash_func(const struct hash_elem *e, void *aux);
 bool less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux);
+void hash_page_destroy(struct hash_elem *e, void *aux);
+
+struct list frame_table;
+struct lock frame_table_lock;
 
 #endif /* VM_VM_H */
