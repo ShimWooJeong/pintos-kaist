@@ -245,9 +245,23 @@ int read(int fd, void *buffer, unsigned size)
 	/* buffer 안에 fd로 열려있는 파일로부터 size 바이트를 읽고 읽어낸 바이트의 수를 반환 */
 	/* 파일 끝에서 시도하면 0, 파일이 읽어질 수 없었다면 -1 반환 */
 
-	check_address(buffer);
-	/* 버퍼 끝 주소도 유저 영역 내에 있는지 체크 */
-	check_address(buffer + size - 1);
+	/* read 시스템 콜은 파일에서 데이터를 읽어와 메모리 버퍼에 저장하는 함수인데 */
+	/* spt_find_page를 통해서 buffer 주소에 대한 page를 얻어왔을 때 */
+	/* 해당 페이지가 not writable한다면, 즉 buffer에 읽어온 데이터를 쓸 수 없다면, exit */
+	struct page *page = spt_find_page(&thread_current()->spt, buffer);
+	if (page)
+	{
+		if (!page->writable)
+		{
+			exit(-1);
+		}
+	}
+
+	if (!is_user_vaddr(buffer) || buffer == NULL)
+	{
+		exit(-1);
+	}
+
 	int read_bytes = 0;
 
 	/* 파일에 동시 접근이 발생할 수 있기 때문에 lock 걸기 */

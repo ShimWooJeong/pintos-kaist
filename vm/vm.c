@@ -285,6 +285,7 @@ bool vm_claim_page(void *va UNUSED)
 static bool
 vm_do_claim_page(struct page *page)
 {
+	/* 프레임 할당 받음 */
 	struct frame *frame = vm_get_frame();
 
 	/* Set links, 페이지와 프레임 매핑 */
