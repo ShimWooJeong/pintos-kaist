@@ -3,6 +3,8 @@
 
 #include "threads/thread.h"
 
+bool lazy_load_segment(struct page *page, void *aux);
+
 /* lazy_load_segment에 넘겨줄 보조 인자들을 저장할 구조체 */
 struct lazy_load_arg
 {

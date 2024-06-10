@@ -13,6 +13,9 @@
 #include "userprog/process.h"
 #include "include/filesys/filesys.h"
 #include "include/threads/palloc.h"
+#include "include/vm/vm.h"
+
+#include "include/vm/file.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -50,6 +53,10 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	/* 스택 포인터가 유저 영역인 지 확인 -> 저장된 인자 값이 포인터일 경우 유저 영역의 주소인 지 확인 */
 	/* stack에서 syscall number get */
 	int syscall_number = f->R.rax;
+
+#ifdef VM
+	thread_current()->rsp = f->rsp;
+#endif
 
 	/* 해당 syscall number에 해당하는 syscall 호출 */
 	/* rax = system call number */
@@ -97,6 +104,12 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		break;
 	case SYS_CLOSE:
 		close(f->R.rdi);
+		break;
+	case SYS_MMAP:
+		f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		do_munmap(f->R.rdi);
 		break;
 	default:
 		thread_exit();
@@ -354,4 +367,36 @@ void close(int fd)
 	file_close(target_f);
 	lock_release(&filesys_lock);
 	process_close_file(fd);
+}
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
+{
+	/* addr이 NULL이거나 페이지 경계에 있지 않은 경우 */
+	if (!addr || addr != pg_round_down(addr))
+		return NULL;
+
+	/* offset이 페이지 경계에 있지 않은 경우 */
+	if (offset != pg_round_down(offset))
+		return NULL;
+
+	/* addr과 addr+length가 user 영역이 아닌 경우 */
+	if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length))
+		return NULL;
+
+	/* addr에 할당된 페이지가 이미 있는 경우 */
+	if (spt_find_page(&thread_current()->spt, addr))
+		return NULL;
+
+	struct file *f = process_get_file(fd);
+
+	/* fd에 해당하는 파일이 NULL인 경우 */
+	if (f == NULL)
+		return NULL;
+
+	/* 파일의 길이가 0이거나, 읽어올 length가 0보다 작은 경우 */
+	if (file_length(f) == 0 || (int)length <= 0)
+		return NULL;
+
+	/* 위처럼 mmap이 이루어질 수 없는 case들을 제외하고는 do_mmap을 호출해 매핑 후 매핑된 가상주소 반환 */
+	return do_mmap(addr, length, writable, f, offset);
 }

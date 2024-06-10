@@ -52,6 +52,7 @@ struct page
 	/* Your implementation */
 	struct hash_elem bucket_elem; /* 해시 테이블 요소 */
 	bool writable;
+	int mapped_page_cnt; /* 매핑에 사용한 총 페이지 수 */
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */

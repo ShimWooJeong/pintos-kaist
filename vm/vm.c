@@ -7,6 +7,7 @@
 #include "include/lib/kernel/list.h"
 #include "include/threads/vaddr.h"
 #include "include/threads/mmu.h"
+#include "include/userprog/process.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -103,10 +104,11 @@ spt_find_page(struct supplemental_page_table *spt UNUSED, void *va UNUSED)
 	struct hash_elem *e;
 
 	/* 할당한 page의 va 값 할당 후, 해당 va에 해당하는 elem 찾기 */
+	/* pg_round_down: 가장 가까운 페이지 경계로 반올림 */
+	/* 사용자가 원하는 임의의 가상 주소에 접근 시, 해당 주소가 포함된 page의 시작 주소를 찾기 위해 진행 */
 	page->va = pg_round_down(va);
 	e = hash_find(&spt->spt_hash, &page->bucket_elem);
 	free(page);
-	/* hash_elem이 page 내에 있어서 여기서 free(page)하면 안 되겠는데, 나중에도 안 해줘도 되나??? */
 	/* 해당하는 hash_elem이 있으면, 그 hash_entry로 해당 페이지 반환 */
 	return e != NULL ? hash_entry(e, struct page, bucket_elem) : NULL;
 }
@@ -190,8 +192,11 @@ vm_get_frame(void)
 
 /* Growing the stack. */
 static void
+
 vm_stack_growth(void *addr UNUSED)
 {
+	/* addr을 PGSIZE 만큼 내려 anon page를 할당 */
+	vm_alloc_page(VM_ANON | VM_MARKER_0, pg_round_down(addr), 1);
 }
 
 /* Handle the fault on write_protected page */
@@ -223,6 +228,18 @@ bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr UNUSED,
 		void *rsp = f->rsp;
 		if (!user)
 			rsp = thread_current()->rsp;
+
+		/* stack growth로 처리할 수 있는 경우 */
+		/* (USER_STACK - (1 << 20): 스택의 최대 크기 경계 주소 */
+		/* 1 << 20 = 2 ^ 20 = 1MB */
+		if (USER_STACK - (1 << 20) <= rsp - 8 && rsp - 8 == addr && addr <= USER_STACK)
+		{
+			vm_stack_growth(addr);
+		}
+		else if (USER_STACK - (1 << 20) <= rsp && rsp <= addr && addr <= USER_STACK)
+		{
+			vm_stack_growth(addr);
+		}
 
 		/* spt에서 해당 가상 주소에 해당하는 페이지 반환 */
 		page = spt_find_page(spt, addr);
@@ -314,14 +331,36 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
 			continue;
 		}
 
-		/* page가 uninit type이 아니라면 페이지 생성 및 초기화, */
-		/* 즉 페이지 공간 할당한 후 부모 type의 초기화 함수를 담은 uninit page로 초기화 후 */
-		/* page fault 처리 (vm_claim_page) 후 memcpy */
+		/* page가 file_backed type이라면  */
+		if (type == VM_FILE)
+		{
+			struct lazy_load_arg *file_aux = malloc(sizeof(struct lazy_load_arg));
+			file_aux->file = src_page->file.file;
+			file_aux->ofs = src_page->file.ofs;
+			file_aux->read_bytes = src_page->file.read_bytes;
+			file_aux->zero_bytes = src_page->file.zero_bytes;
+
+			if (!vm_alloc_page_with_initializer(type, upage, writable, NULL, file_aux))
+			{
+				return false;
+			}
+
+			struct page *file_page = spt_find_page(dst, upage);
+			file_backed_initializer(file_page, type, NULL);
+			file_page->frame = src_page->frame;
+
+			pml4_set_page(thread_current()->pml4, file_page->va, src_page->frame->kva, src_page->writable);
+			continue;
+		}
+
+		/* page가 anon type이라면 */
 		if (!vm_alloc_page(type, upage, writable))
 		{
 			return false;
 		}
 
+		/* 부모 type의 초기화 함수를 담은 uninit page로 초기화 후 */
+		/* page fault 처리 (vm_claim_page) 후 memcpy */
 		if (!vm_claim_page(upage))
 		{
 			return false;
