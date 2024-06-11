@@ -44,6 +44,8 @@ static bool
 file_backed_swap_in(struct page *page, void *kva)
 {
 	struct file_page *file_page UNUSED = &page->file;
+	/* lazy_load_segment 호출: 물리 frame 할당받아 페이지와 매핑해준 뒤, 디스크의 파일에서 물리 frame으로 데이터 미러링(복사) */
+	return lazy_load_segment(page, file_page);
 }
 
 /* Swap out the page by writeback contents to the file. */
@@ -51,6 +53,19 @@ static bool
 file_backed_swap_out(struct page *page)
 {
 	struct file_page *file_page UNUSED = &page->file;
+
+	/* 수정사항이 있었다면 파일(in disk)에 수정사항 적용해주고, dirty bit = 0으로 초기화 */
+	if (pml4_is_dirty(thread_current()->pml4, page->va))
+	{
+		file_write_at(file_page->file, page->va, file_page->read_bytes, file_page->ofs);
+		pml4_set_dirty(thread_current()->pml4, page->va, 0);
+	}
+
+	/* 페이지와 프레임 연결 끊음 */
+	page->frame->page = NULL;
+	page->frame = NULL;
+	pml4_clear_page(thread_current()->pml4, page->va);
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
