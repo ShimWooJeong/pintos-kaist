@@ -137,20 +137,54 @@ static struct frame *
 vm_get_victim(void)
 {
 	struct frame *victim = NULL;
-	/* TODO: The policy for eviction is up to you. */
 
+	struct thread *curr = thread_current();
+
+	lock_acquire(&frame_table_lock);
+	struct list_elem *start = list_begin(&frame_table);
+	for (start; start != list_end(&frame_table); start = list_next(start))
+	{
+		victim = list_entry(start, struct frame, frame_elem);
+
+		if (victim->page == NULL)
+		{
+			lock_release(&frame_table_lock);
+			return victim;
+		}
+		/* frame table의 entry page가 최근에 access 된 경우 = accessed bit(1) = true 반환 */
+		if (pml4_is_accessed(curr->pml4, victim->page->va))
+		{
+			/* set_accessed로 accessed bit를 1에서 0으로 설정한 후 넘어감 */
+			pml4_set_accessed(curr->pml4, victim->page->va, 0);
+		}
+		else
+		{
+			/* 최근에 accessed 된 경우가 아니라면, accessed bit(0) = swap out될 대상이 됨 */
+			lock_release(&frame_table_lock);
+			return victim;
+		}
+	}
+
+	lock_release(&frame_table_lock);
 	return victim;
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
+/* 하나의 페이지를 퇴거 시키고 해당 프레임 반환 */
 static struct frame *
 vm_evict_frame(void)
 {
+	/* vm_get_victim으로 퇴거할 페이지를 골라 반환받은 후 */
 	struct frame *victim UNUSED = vm_get_victim();
 	/* TODO: swap out the victim and return the evicted frame. */
-
-	return NULL;
+	if (victim->page)
+	{
+		/* 해당 페이지를 swap out 시킴 */
+		swap_out(victim->page);
+	}
+	/* 이제 빈 공간이 된 프레임 반환 */
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -171,9 +205,10 @@ vm_get_frame(void)
 
 	if (kva == NULL)
 	{
-		/* kva가 NULL이라면 할당 실패, 물리 메모리 공간 꽉 찼다는 의미 */
-		/* 나중에 SWAP-OUT 처리 필요 */
-		PANIC("SWAP OUT");
+		/* kva가 NULL이라면 할당 실패, 물리 메모리 공간 꽉 찼다는 의미 = SWAP-OUT 처리*/
+		struct frame *victim = vm_evict_frame();
+		victim->page = NULL;
+		return victim;
 	}
 
 	/* 프레임 동적 할당 후 멤버 초기화 */

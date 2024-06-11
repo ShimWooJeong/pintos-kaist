@@ -129,7 +129,18 @@ uint64_t hash_func(const struct hash_elem *e, void *aux);
 bool less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux);
 void hash_page_destroy(struct hash_elem *e, void *aux);
 
+/* swap_disk 속 swap_table(list)을 이루는 slot 구조체 */
+struct slot
+{
+	struct page *page;
+	uint32_t slot_num;
+	struct list_elem swap_elem;
+};
+
 struct list frame_table;
 struct lock frame_table_lock;
+
+struct list swap_table;
+struct lock swap_table_lock;
 
 #endif /* VM_VM_H */
