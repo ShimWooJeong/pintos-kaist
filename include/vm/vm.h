@@ -117,7 +117,7 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
 						 bool write, bool not_present);
 
 #define vm_alloc_page(type, upage, writable) \
-	vm_alloc_page_with_initializer((type), (upage), (writable), NULL, NULL)
+	_initializer((type), (upage), (writable), NULL, NULL)
 bool vm_alloc_page_with_initializer(enum vm_type type, void *upage,
 									bool writable, vm_initializer *init, void *aux);
 void vm_dealloc_page(struct page *page);
@@ -142,5 +142,8 @@ struct lock frame_table_lock;
 
 struct list swap_table;
 struct lock swap_table_lock;
+
+/* 페이지 교체 정책에서 쓸 변수 */
+struct list_elem *evict_start;
 
 #endif /* VM_VM_H */

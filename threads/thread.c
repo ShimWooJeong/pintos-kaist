@@ -128,9 +128,9 @@ void thread_init(void)
 	list_init(&sleep_list); /* sleep list 초기화 */
 	list_init(&all_list);	/* NOTE: [Improve] all list 초기화 */
 	list_init(&destruction_req);
-
-	global_tick = INT64_MAX; /* global tick 초기화 */
-	load_avg = int_to_fp(0); /* NOTE: [Part3] load_avg 초기화 */
+	v
+		global_tick = INT64_MAX; /* global tick 초기화 */
+	load_avg = int_to_fp(0);	 /* NOTE: [Part3] load_avg 초기화 */
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread();
@@ -442,7 +442,7 @@ void thread_wakeup(int64_t curr_tick)
 		{
 			e = list_remove(e); /* sleep_list에서 제거 */
 			thread_unblock(t);	/* 쓰레드 block 해제 후 */
-			// thread_compare_yield();
+			thread_compare_yield();
 			set_global_tick(get_min_tick()); /* global_tick 갱신 */
 		}
 		else

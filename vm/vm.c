@@ -161,7 +161,7 @@ vm_get_victim(void)
 		{
 			/* 최근에 accessed 된 경우가 아니라면, accessed bit(0) = swap out될 대상이 됨 */
 			lock_release(&frame_table_lock);
-			return victim;
+			start = 교체되는 애의 다음 애 return victim;
 		}
 	}
 
@@ -192,37 +192,65 @@ vm_evict_frame(void)
  * memory is full, this function evicts the frame to get the available memory
  * space.*/
 static struct frame *
-vm_get_frame(void)
+vm_get_victim(void)
 {
-	struct frame *frame = NULL;
-	struct page *page = NULL;
-	/* TODO: Fill this function. */
+	struct frame *victim = NULL;
 
-	/* 유저 풀에서 새로운 물리 메모리 할당 받음 */
-	/* palloc_get_page가 kva를 반환 */
-	/* physical adress = virtual adress + KERN_BASE(커널은 모두 공유) */
-	void *kva = palloc_get_page(PAL_USER);
-
-	if (kva == NULL)
-	{
-		/* kva가 NULL이라면 할당 실패, 물리 메모리 공간 꽉 찼다는 의미 = SWAP-OUT 처리*/
-		struct frame *victim = vm_evict_frame();
-		victim->page = NULL;
-		return victim;
-	}
-
-	/* 프레임 동적 할당 후 멤버 초기화 */
-	frame = malloc(sizeof(struct frame));
-	frame->kva = kva;
-	frame->page = NULL;
+	struct thread *curr = thread_current();
 
 	lock_acquire(&frame_table_lock);
-	list_push_back(&frame_table, &frame->frame_elem);
-	lock_release(&frame_table_lock);
 
-	ASSERT(frame != NULL);
-	ASSERT(frame->page == NULL);
-	return frame;
+	/* 페이지 교체 정책: clock_algorithm */
+	/* evict_start: 최근에 교체됐던 페이지의 다음 페이지 */
+	/* temp를 두는 이유: evict_start 그 자체로 탐색을 하면 첫 번째 for문을 다 돈 다음
+					  다음 for문에서 어디까지 돌아야 할 지 애매해짐 = temp로 돔으로써 evict_start의 유지 */
+	struct list_elem *temp = evict_start;
+
+	for (temp; temp != list_end(&frame_table); temp = list_next(temp))
+	{
+		victim = list_entry(temp, struct frame, frame_elem);
+
+		if (victim->page == NULL)
+		{
+			lock_release(&frame_table_lock);
+			return victim;
+		}
+		/* frame table의 entry page가 최근에 access 된 경우 = accessed bit(1) = true 반환 */
+		if (pml4_is_accessed(curr->pml4, victim->page->va))
+		{
+			/* set_accessed로 accessed bit를 1에서 0으로 설정한 후 넘어감 */
+			pml4_set_accessed(curr->pml4, victim->page->va, 0);
+		}
+		else
+		{
+			/* 최근에 accessed 된 경우가 아니라면, accessed bit(0) = swap out될 대상이 됨 */
+			lock_release(&frame_table_lock);
+			evict_start = list_next(temp);
+			return victim;
+		}
+	}
+
+	for (temp = list_begin(&frame_table); temp != evict_start; temp = list_next(&frame_table))
+	{
+		victim = list_entry(temp, struct frame, frame_elem);
+
+		if (pml4_is_accessed(curr->pml4, victim->page->va))
+		{
+			/* set_accessed로 accessed bit를 1에서 0으로 설정한 후 넘어감 */
+			pml4_set_accessed(curr->pml4, victim->page->va, 0);
+		}
+		else
+		{
+			/* 최근에 accessed 된 경우가 아니라면, accessed bit(0) = swap out될 대상이 됨 */
+			lock_release(&frame_table_lock);
+			evict_start = list_next(temp);
+			return victim;
+		}
+	}
+
+	lock_release(&frame_table_lock);
+	evict_start = list_next(evict_start);
+	return victim;
 }
 
 /* Growing the stack. */
